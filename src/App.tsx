@@ -812,7 +812,7 @@ export default function App() {
         const defaultSettings: AppSettings = {
           id: 'global',
           heroImageUrl: 'https://picsum.photos/seed/university/1920/1080',
-          listingTaxRate: 0.05,
+          listingTaxRate: 0.0175,
           updatedAt: new Date().toISOString()
         };
         // Only attempt to initialize if the user is an admin to avoid permission errors
@@ -1148,8 +1148,8 @@ export default function App() {
       const orderPromises = (Object.entries(itemsBySeller) as [string, CartItem[]][]).map(async ([sellerId, items]) => {
         const orderId = 'ORD-' + Math.random().toString(36).substr(2, 9).toUpperCase();
         const total = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-        const taxRate = appSettings?.listingTaxRate || 0;
-        const taxAmount = total * taxRate;
+        const taxRate = Math.max(appSettings?.listingTaxRate || 0, 0.0175);
+        const taxAmount = Number((total * taxRate).toFixed(2));
         
         const newOrder: Order = {
           id: orderId,
@@ -1157,7 +1157,17 @@ export default function App() {
           customerName: studentName || currentUser.displayName || 'Student User',
           customerStudentId: studentId || userProfile?.studentId || '',
           sellerId: sellerId,
-          items: [...items],
+          items: items.map(item => ({
+            id: item.id,
+            name: item.name,
+            price: item.price,
+            images: item.images,
+            category: item.category,
+            sellerId: item.sellerId,
+            sellerName: item.sellerName,
+            stock: item.stock,
+            quantity: item.quantity
+          })),
           status: 'PREPARING',
           date: new Date().toISOString(),
           total: total,
@@ -1343,9 +1353,13 @@ export default function App() {
   const updateAppSettings = async (updates: Partial<AppSettings>) => {
     try {
       setIsLoading(true);
+      const finalUpdates = { ...updates };
+      if (finalUpdates.listingTaxRate !== undefined) {
+        finalUpdates.listingTaxRate = Math.max(finalUpdates.listingTaxRate, 0.0175);
+      }
       const settingsRef = doc(db, 'settings', 'global');
       await setDoc(settingsRef, {
-        ...updates,
+        ...finalUpdates,
         updatedAt: new Date().toISOString()
       }, { merge: true });
       toast.success('System settings updated successfully!');
@@ -4883,8 +4897,10 @@ export default function App() {
                           <div className="flex items-center gap-4">
                             <input 
                               type="number" 
+                              step="0.01"
+                              min="1.75"
                               value={(appSettings?.listingTaxRate || 0) * 100}
-                              onChange={(e) => updateAppSettings({ listingTaxRate: parseFloat(e.target.value) / 100 })}
+                              onChange={(e) => updateAppSettings({ listingTaxRate: Math.max(parseFloat(e.target.value) || 0, 1.75) / 100 })}
                               className="w-20 bg-white dark:bg-gray-800 border border-gray-200 dark:border-white/10 rounded-xl px-4 py-2 text-xs font-black text-maroon text-center outline-none focus:ring-2 focus:ring-maroon"
                             />
                             <span className="text-xs font-black text-gray-400">%</span>

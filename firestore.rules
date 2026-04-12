@@ -124,11 +124,12 @@ service cloud.firestore {
     }
 
     function isValidSettings(data) {
-      return hasOnlyAllowedFields(['id', 'heroImageUrl', 'listingTaxRate', 'sellerRegistrationEnabled', 'activeSellers', 'uniqueProducts', 'studentOrders', 'communityRating', 'updatedAt']) &&
+      return hasOnlyAllowedFields(['id', 'heroImageUrl', 'listingTaxRate', 'sellerRegistrationEnabled', 'activeSellers', 'uniqueProducts', 'studentOrders', 'communityRating', 'updatedAt', 'maintenanceMode']) &&
         (!('id' in data) || data.id is string) &&
         (!('heroImageUrl' in data) || (data.heroImageUrl is string && data.heroImageUrl.size() < 1000000)) &&
         (!('listingTaxRate' in data) || data.listingTaxRate is number) &&
         (!('sellerRegistrationEnabled' in data) || data.sellerRegistrationEnabled is bool) &&
+        (!('maintenanceMode' in data) || data.maintenanceMode is bool) &&
         (!('activeSellers' in data) || data.activeSellers is number) &&
         (!('uniqueProducts' in data) || data.uniqueProducts is number) &&
         (!('studentOrders' in data) || data.studentOrders is number) &&

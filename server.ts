@@ -61,6 +61,12 @@ async function startServer() {
     }
 
     try {
+      // Check if SMTP is configured before creating transporter or verifying
+      if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
+        console.warn("SMTP is not configured. Email will not be sent, but request will succeed for demo purposes.");
+        return res.json({ success: true, message: "Email simulation successful (SMTP not configured)" });
+      }
+
       const transporter = createTransporter();
 
       // Verify connection configuration
@@ -147,6 +153,12 @@ async function startServer() {
     }
 
     try {
+      // Check if SMTP is configured before creating transporter or verifying
+      if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
+        console.warn("SMTP not configured for admin request. Mocking success.");
+        return res.json({ success: true, message: "Admin request simulated successfully" });
+      }
+
       const transporter = createTransporter();
 
       // Verify connection configuration
