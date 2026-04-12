@@ -845,6 +845,17 @@ export default function App() {
       setNotifications(nots);
     }, (error) => handleFirestoreError(error, OperationType.LIST, 'notifications'));
 
+    // User Profile Listener
+    const unsubProfile = onSnapshot(doc(db, 'users', currentUser.uid), (snapshot) => {
+      if (snapshot.exists()) {
+        const userData = snapshot.data();
+        setUserProfile(userData);
+        if (userData.role === 'seller' || userData.role === 'customer') {
+          setUserRole(userData.role);
+        }
+      }
+    }, (error) => handleFirestoreError(error, OperationType.GET, `users/${currentUser.uid}`));
+
     // Settings Listener
     const unsubSettings = onSnapshot(doc(db, 'settings', 'global'), (snapshot) => {
       if (snapshot.exists()) {
@@ -885,6 +896,7 @@ export default function App() {
       unsubOrders();
       unsubChats();
       unsubNotifs();
+      unsubProfile();
       unsubSettings();
     };
   }, [isAuthReady, currentUser]);
@@ -1338,7 +1350,7 @@ export default function App() {
       };
 
       if (newStatus === 'DELIVERED') {
-        updates.taxPaidToAdmin = true;
+        updates.taxPaidToAdmin = false; // Mark as owed but not yet paid to admin
       }
 
       await updateDoc(orderRef, updates);
@@ -2282,8 +2294,8 @@ export default function App() {
         <div className="glass rounded-[3rem] p-10 shadow-premium border border-white/20 space-y-8">
           <div className="flex p-1.5 bg-gray-100/50 dark:bg-white/5 rounded-2xl">
             <button 
-              onClick={() => setUserRole('buyer')}
-              className={`flex-1 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${userRole === 'buyer' ? 'bg-white dark:bg-gray-800 text-maroon shadow-soft' : 'text-gray-400 hover:text-gray-600'}`}
+              onClick={() => setUserRole('customer')}
+              className={`flex-1 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${userRole === 'customer' ? 'bg-white dark:bg-gray-800 text-maroon shadow-soft' : 'text-gray-400 hover:text-gray-600'}`}
             >
               I want to Buy
             </button>
@@ -3579,16 +3591,10 @@ export default function App() {
               transition={{ delay: 0.2 }}
               className="flex items-center justify-center gap-3"
             >
-              <button 
-                onClick={() => setUserRole(userRole === 'customer' ? 'seller' : 'customer')}
-                className="bg-white/20 backdrop-blur-md px-5 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest border border-white/10 hover:bg-white/30 transition-all"
-              >
-                Switch to {userRole === 'customer' ? 'Seller' : 'Customer'}
-              </button>
               <span className="bg-white/20 backdrop-blur-md px-5 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest border border-white/10">
-                {userRole}
+                {userProfile?.role || 'customer'}
               </span>
-              {userRole === 'seller' && (
+              {userProfile?.role === 'seller' && (
                 <div className="bg-blue-500/20 backdrop-blur-md px-4 py-2 rounded-2xl flex items-center gap-2 border border-blue-400/20">
                   <ShieldCheck size={14} className="text-blue-300" />
                   <span className="text-[9px] font-black uppercase tracking-widest text-blue-100">Verified Seller</span>
@@ -3636,7 +3642,7 @@ export default function App() {
           transition={{ delay: 0.4 }}
           className="bg-white dark:bg-gray-900 rounded-[3rem] shadow-2xl p-10 grid grid-cols-2 gap-10 border border-gray-100 dark:border-gray-800"
         >
-          {userRole === 'customer' ? (
+          {userProfile?.role === 'customer' ? (
             <>
               <button onClick={() => navigateTo('cart')} className="flex flex-col items-center gap-4 group">
                 <div className="w-20 h-20 bg-maroon/5 dark:bg-maroon/20 rounded-[2rem] flex items-center justify-center text-maroon dark:text-red-400 group-hover:bg-maroon group-hover:text-white transition-all duration-500 shadow-sm group-hover:shadow-xl group-hover:-translate-y-2">
@@ -3883,7 +3889,8 @@ export default function App() {
     const totalSales = validOrders.reduce((sum, order) => sum + order.total, 0);
     const totalOrders = validOrders.length;
     const pendingOrders = myOrders.filter(o => o.status === 'PREPARING' || o.status === 'SHIPPED').length;
-    const totalTaxOwed = completedOrders.reduce((sum, order) => sum + (order.taxAmount || 0), 0);
+    const totalTaxPaid = completedOrders.filter(o => o.taxPaidToAdmin === true).reduce((sum, order) => sum + (order.taxAmount || 0), 0);
+    const totalTaxOwed = completedOrders.filter(o => o.taxPaidToAdmin !== true).reduce((sum, order) => sum + (order.taxAmount || 0), 0);
     const pendingTax = validOrders.filter(o => o.status !== 'DELIVERED').reduce((sum, order) => sum + (order.taxAmount || 0), 0);
     
     // Accurate data for charts
@@ -3940,11 +3947,21 @@ export default function App() {
               </div>
             </div>
             <div className="bg-white dark:bg-gray-900 p-8 rounded-[2.5rem] shadow-sm border border-gray-100 dark:border-gray-800 flex items-center gap-6 group hover:shadow-xl transition-all duration-300">
-              <div className="bg-maroon w-16 h-16 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-maroon/20 group-hover:scale-110 transition-transform">
+              <div className="bg-green-600 w-16 h-16 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-green-600/20 group-hover:scale-110 transition-transform">
                 <ShieldCheck size={32} />
               </div>
               <div>
-                <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-1">Tax Owed (Completed)</p>
+                <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-1">Tax Paid</p>
+                <p className="text-sm font-black text-gray-400 uppercase mb-1">PHP</p>
+                <p className="text-3xl font-black text-green-600 tracking-tighter">{totalTaxPaid.toLocaleString()}</p>
+              </div>
+            </div>
+            <div className="bg-white dark:bg-gray-900 p-8 rounded-[2.5rem] shadow-sm border border-gray-100 dark:border-gray-800 flex items-center gap-6 group hover:shadow-xl transition-all duration-300">
+              <div className="bg-maroon w-16 h-16 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-maroon/20 group-hover:scale-110 transition-transform">
+                <DollarSign size={32} />
+              </div>
+              <div>
+                <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-1">Tax Owed</p>
                 <p className="text-sm font-black text-gray-400 uppercase mb-1">PHP</p>
                 <p className="text-3xl font-black text-maroon tracking-tighter">{totalTaxOwed.toLocaleString()}</p>
               </div>
@@ -4386,6 +4403,31 @@ export default function App() {
   const AdminDashboardView = () => {
     const [activeTab, setActiveTab] = useState<'users' | 'orders' | 'reports' | 'tax' | 'settings'>('users');
     const [roleFilter, setRoleFilter] = useState<'all' | 'customer' | 'seller' | 'admin'>('all');
+    const [taxRateInput, setTaxRateInput] = useState((appSettings?.listingTaxRate || 0) * 100);
+
+    const markOrderTaxAsPaid = async (orderId: string) => {
+      try {
+        await updateDoc(doc(db, 'orders', orderId), {
+          taxPaidToAdmin: true,
+          updatedAt: new Date().toISOString()
+        });
+        toast.success('Commission marked as paid');
+      } catch (error) {
+        toast.error('Failed to update commission status');
+      }
+    };
+
+    const updateTaxRate = async () => {
+      try {
+        await updateDoc(doc(db, 'settings', 'global'), {
+          listingTaxRate: taxRateInput / 100,
+          updatedAt: new Date().toISOString()
+        });
+        toast.success('Tax rate updated successfully');
+      } catch (error) {
+        toast.error('Failed to update tax rate');
+      }
+    };
 
     if (userProfile?.role !== 'admin' || !ADMIN_EMAILS.includes(currentUser?.email)) {
       return (
@@ -4406,7 +4448,8 @@ export default function App() {
       totalCustomers: allUsers.filter(u => u.role === 'customer').length,
       totalOrders: validOrders.length,
       totalRevenue: validOrders.reduce((acc, curr) => acc + curr.total, 0),
-      totalTaxCollected: allOrders.filter(o => o.status === 'DELIVERED').reduce((acc, curr) => acc + (curr.taxAmount || 0), 0),
+      totalTaxCollected: allOrders.filter(o => o.taxPaidToAdmin === true).reduce((acc, curr) => acc + (curr.taxAmount || 0), 0),
+      totalTaxOwed: allOrders.filter(o => o.status === 'DELIVERED' && !o.taxPaidToAdmin).reduce((acc, curr) => acc + (curr.taxAmount || 0), 0),
       blockedUsers: allUsers.filter(u => u.isBlocked).length,
       pendingOrders: allOrders.filter(o => o.status === 'PREPARING').length
     };
@@ -4449,6 +4492,7 @@ export default function App() {
           name: seller.displayName || seller.email,
           sales: sellerOrders.reduce((sum, o) => sum + o.total, 0),
           taxPaid: sellerOrders.filter(o => o.status === 'DELIVERED').reduce((sum, o) => sum + (o.taxAmount || 0), 0),
+          taxPending: sellerOrders.filter(o => o.status !== 'DELIVERED').reduce((sum, o) => sum + (o.taxAmount || 0), 0),
           count: sellerOrders.length
         };
       })
@@ -4713,51 +4757,125 @@ export default function App() {
                         <h3 className="text-2xl font-black uppercase tracking-tighter dark:text-white">Tax Management</h3>
                         <p className="text-xs text-gray-400 font-medium">Monitor and manage seller commission fees</p>
                       </div>
-                      <div className="bg-maroon/5 border border-maroon/10 px-6 py-4 rounded-2xl">
-                        <p className="text-[10px] font-black text-maroon uppercase tracking-widest mb-1">Current Tax Rate</p>
-                        <p className="text-2xl font-black text-maroon">{(appSettings?.listingTaxRate || 0) * 100}%</p>
+                      <div className="flex items-center gap-4 bg-white dark:bg-[#0d0d0d] p-4 rounded-3xl border border-gray-100 dark:border-white/5 shadow-sm">
+                        <div className="space-y-1">
+                          <p className="text-[8px] font-black text-gray-400 uppercase tracking-widest">Commission Rate (%)</p>
+                          <div className="flex items-center gap-2">
+                            <input 
+                              type="number" 
+                              value={taxRateInput}
+                              onChange={(e) => setTaxRateInput(Number(e.target.value))}
+                              className="w-16 bg-gray-50 dark:bg-white/5 border-none rounded-lg px-2 py-1 text-sm font-black text-maroon outline-none"
+                            />
+                            <button 
+                              onClick={updateTaxRate}
+                              className="bg-maroon text-white text-[10px] font-black uppercase px-3 py-1.5 rounded-lg hover:bg-maroon/90 transition-colors"
+                            >
+                              Save
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 gap-6">
-                      <div className="bg-white dark:bg-[#0d0d0d] p-10 rounded-[3rem] border border-gray-100 dark:border-white/5 shadow-xl overflow-hidden">
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-left">
-                            <thead>
-                              <tr className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 border-b border-gray-100 dark:border-white/5">
-                                <th className="pb-6">Seller</th>
-                                <th className="pb-6">Total Sales</th>
-                                <th className="pb-6">Orders</th>
-                                <th className="pb-6 text-right">Tax Owed to Admin</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-50 dark:divide-white/5">
-                              {sellerPerformance.map((seller, idx) => (
-                                <tr key={idx} className="group">
-                                  <td className="py-6">
-                                    <div className="flex items-center gap-4">
-                                      <div className="w-10 h-10 rounded-xl bg-gray-100 dark:bg-white/5 flex items-center justify-center text-maroon">
-                                        <User size={18} />
-                                      </div>
-                                      <span className="text-sm font-bold dark:text-white">{seller.name}</span>
-                                    </div>
-                                  </td>
-                                  <td className="py-6">
-                                    <span className="text-xs font-black dark:text-gray-400">₱{seller.sales.toLocaleString()}</span>
-                                  </td>
-                                  <td className="py-6">
-                                    <span className="text-xs font-black dark:text-gray-400">{seller.count}</span>
-                                  </td>
-                                  <td className="py-6 text-right">
-                                    <div className="inline-flex flex-col items-end">
-                                      <span className="text-lg font-black text-maroon">₱{seller.taxPaid.toLocaleString()}</span>
-                                      <span className="text-[8px] font-black uppercase tracking-widest text-gray-400">{(appSettings?.listingTaxRate || 0) * 100}% Commission</span>
-                                    </div>
-                                  </td>
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                      <div className="bg-white dark:bg-[#0d0d0d] p-8 rounded-[2.5rem] border border-gray-100 dark:border-white/5 shadow-sm">
+                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Tax Collected</p>
+                        <p className="text-3xl font-black text-green-600">₱{stats.totalTaxCollected.toLocaleString()}</p>
+                        <p className="text-[10px] font-bold text-gray-400 mt-2">Remitted by Sellers</p>
+                      </div>
+                      <div className="bg-white dark:bg-[#0d0d0d] p-8 rounded-[2.5rem] border border-gray-100 dark:border-white/5 shadow-sm">
+                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Tax Owed</p>
+                        <p className="text-3xl font-black text-maroon">₱{stats.totalTaxOwed.toLocaleString()}</p>
+                        <p className="text-[10px] font-bold text-gray-400 mt-2">Delivered but Unpaid</p>
+                      </div>
+                      <div className="bg-white dark:bg-[#0d0d0d] p-8 rounded-[2.5rem] border border-gray-100 dark:border-white/5 shadow-sm">
+                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Pending Commission</p>
+                        <p className="text-3xl font-black text-orange-500">₱{allOrders.filter(o => o.status !== 'DELIVERED' && o.status !== 'CANCELLED' && o.status !== 'REJECTED').reduce((acc, curr) => acc + (curr.taxAmount || 0), 0).toLocaleString()}</p>
+                        <p className="text-[10px] font-bold text-gray-400 mt-2">From Active Orders</p>
+                      </div>
+                      <div className="bg-white dark:bg-[#0d0d0d] p-8 rounded-[2.5rem] border border-gray-100 dark:border-white/5 shadow-sm">
+                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Total Potential</p>
+                        <p className="text-3xl font-black text-blue-600">₱{(stats.totalTaxCollected + stats.totalTaxOwed + allOrders.filter(o => o.status !== 'DELIVERED' && o.status !== 'CANCELLED' && o.status !== 'REJECTED').reduce((acc, curr) => acc + (curr.taxAmount || 0), 0)).toLocaleString()}</p>
+                        <p className="text-[10px] font-bold text-gray-400 mt-2">All Valid Orders</p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                      <div className="lg:col-span-2 space-y-6">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-lg font-black uppercase tracking-tighter dark:text-white">Pending Remittances</h4>
+                          <span className="bg-maroon/10 text-maroon text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest">
+                            {allOrders.filter(o => o.status === 'DELIVERED' && !o.taxPaidToAdmin).length} Orders
+                          </span>
+                        </div>
+                        <div className="bg-white dark:bg-[#0d0d0d] rounded-[2.5rem] border border-gray-100 dark:border-white/5 shadow-xl overflow-hidden">
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-left">
+                              <thead>
+                                <tr className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 border-b border-gray-100 dark:border-white/5">
+                                  <th className="p-6">Order ID</th>
+                                  <th className="p-6">Seller</th>
+                                  <th className="p-6">Commission</th>
+                                  <th className="p-6 text-right">Action</th>
                                 </tr>
-                              ))}
-                            </tbody>
-                          </table>
+                              </thead>
+                              <tbody className="divide-y divide-gray-50 dark:divide-white/5">
+                                {allOrders.filter(o => o.status === 'DELIVERED' && !o.taxPaidToAdmin).length === 0 ? (
+                                  <tr>
+                                    <td colSpan={4} className="p-12 text-center text-gray-400 text-xs font-medium">No pending remittances found.</td>
+                                  </tr>
+                                ) : (
+                                  allOrders.filter(o => o.status === 'DELIVERED' && !o.taxPaidToAdmin).map((order) => (
+                                    <tr key={order.id} className="group hover:bg-gray-50/50 dark:hover:bg-white/5 transition-colors">
+                                      <td className="p-6">
+                                        <span className="text-xs font-black dark:text-white">{order.id}</span>
+                                      </td>
+                                      <td className="p-6">
+                                        <span className="text-xs font-bold dark:text-gray-400">{allUsers.find(u => u.uid === order.sellerId)?.displayName || order.sellerId}</span>
+                                      </td>
+                                      <td className="p-6">
+                                        <span className="text-xs font-black text-maroon">₱{(order.taxAmount || 0).toLocaleString()}</span>
+                                      </td>
+                                      <td className="p-6 text-right">
+                                        <button 
+                                          onClick={() => markOrderTaxAsPaid(order.id)}
+                                          className="bg-green-500 text-white text-[10px] font-black uppercase px-4 py-2 rounded-xl hover:bg-green-600 transition-colors shadow-lg shadow-green-500/20"
+                                        >
+                                          Mark Paid
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  ))
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-6">
+                        <h4 className="text-lg font-black uppercase tracking-tighter dark:text-white">Seller Summary</h4>
+                        <div className="bg-white dark:bg-[#0d0d0d] rounded-[2.5rem] border border-gray-100 dark:border-white/5 shadow-xl overflow-hidden">
+                          <div className="p-6 space-y-6">
+                            {sellerPerformance.map((seller, idx) => (
+                              <div key={idx} className="flex items-center justify-between group">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-8 h-8 rounded-lg bg-maroon/5 flex items-center justify-center text-maroon">
+                                    <User size={14} />
+                                  </div>
+                                  <div className="flex flex-col">
+                                    <span className="text-[10px] font-bold dark:text-white">{seller.name}</span>
+                                    <span className="text-[8px] font-black text-gray-400 uppercase tracking-widest">₱{seller.taxPaid.toLocaleString()} Collected</span>
+                                  </div>
+                                </div>
+                                <div className="text-right">
+                                  <span className="text-[10px] font-black text-maroon">₱{seller.taxPending.toLocaleString()}</span>
+                                  <p className="text-[8px] font-black text-gray-400 uppercase tracking-widest">Pending</p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       </div>
                     </div>
