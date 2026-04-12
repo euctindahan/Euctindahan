@@ -1,0 +1,165 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "role": { "type": "string", "enum": ["customer", "seller", "admin"] },
+        "photoURL": { "type": "string" },
+        "bannerUrl": { "type": "string" },
+        "bio": { "type": "string" },
+        "isBlocked": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "A handcrafted item for sale",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "price": { "type": "number" },
+        "images": { "type": "array", "items": { "type": "string" } },
+        "category": { "type": "string" },
+        "sellerId": { "type": "string" },
+        "sellerName": { "type": "string" },
+        "stock": { "type": "integer", "description": "Number of items available in stock" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "price", "category", "sellerId", "stock"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "A purchase record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "customerId": { "type": "string" },
+        "sellerId": { "type": "string" },
+        "items": { "type": "array" },
+        "status": { "type": "string", "enum": ["PREPARING", "SHIPPED", "DELIVERED", "REJECTED", "CANCELLED"] },
+        "total": { "type": "number" },
+        "taxAmount": { "type": "number", "description": "Commission/tax fee for this order" },
+        "date": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "customerId", "sellerId", "items", "status", "total"]
+    },
+    "Review": {
+      "title": "Review",
+      "description": "Product feedback from customers",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "productId": { "type": "string" },
+        "userName": { "type": "string" },
+        "rating": { "type": "number" },
+        "comment": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "productId", "rating"]
+    },
+    "Chat": {
+      "title": "Chat",
+      "description": "A conversation between customer and seller",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "productId": { "type": "string" },
+        "productName": { "type": "string" },
+        "customerId": { "type": "string" },
+        "customerName": { "type": "string" },
+        "sellerId": { "type": "string" },
+        "sellerName": { "type": "string" },
+        "lastMessage": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "productId", "customerId", "sellerId"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "A single message in a chat",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "chatId": { "type": "string" },
+        "senderId": { "type": "string" },
+        "text": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "chatId", "senderId", "text"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "User notification",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "type": { "type": "string", "enum": ["order", "message", "promo"] },
+        "date": { "type": "string", "format": "date-time" },
+        "isRead": { "type": "boolean" }
+      },
+      "required": ["id", "userId", "title", "message", "type"]
+    },
+    "Settings": {
+      "title": "Settings",
+      "description": "Application-wide settings and statistics",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "heroImageUrl": { "type": "string" },
+        "listingTaxRate": { "type": "number", "description": "Percentage tax rate for listings (e.g. 0.05 for 5%)" },
+        "sellerRegistrationEnabled": { "type": "boolean" },
+        "activeSellers": { "type": "integer" },
+        "uniqueProducts": { "type": "integer" },
+        "studentOrders": { "type": "integer" },
+        "communityRating": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/products/{productId}": {
+      "schema": "Product",
+      "description": "Handcrafted products"
+    },
+    "/orders/{orderId}": {
+      "schema": "Order",
+      "description": "Purchase orders"
+    },
+    "/reviews/{reviewId}": {
+      "schema": "Review",
+      "description": "Product reviews"
+    },
+    "/chats/{chatId}": {
+      "schema": "Chat",
+      "description": "Chat sessions"
+    },
+    "/chats/{chatId}/messages/{messageId}": {
+      "schema": "Message",
+      "description": "Messages within a chat"
+    },
+    "/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "User notifications"
+    },
+    "/settings/{settingsId}": {
+      "schema": "Settings",
+      "description": "Global application settings"
+    }
+  }
+}
