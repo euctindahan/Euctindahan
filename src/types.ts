@@ -67,6 +67,7 @@ export interface Order {
   date: string;
   total: number;
   taxAmount?: number;
+  taxPaidToAdmin?: boolean;
   paymentMethod: 'GCASH' | 'COD';
   updatedAt?: string;
 }

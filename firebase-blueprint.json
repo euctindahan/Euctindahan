@@ -47,6 +47,7 @@
         "status": { "type": "string", "enum": ["PREPARING", "SHIPPED", "DELIVERED", "REJECTED", "CANCELLED"] },
         "total": { "type": "number" },
         "taxAmount": { "type": "number", "description": "Commission/tax fee for this order" },
+        "taxPaidToAdmin": { "type": "boolean", "description": "Whether the tax has been remitted to the admin" },
         "date": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "customerId", "sellerId", "items", "status", "total"]

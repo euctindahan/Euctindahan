@@ -464,6 +464,47 @@ const MessageInput = ({ onSend, isSending, selectedChatImage, handleImageUpload 
   );
 };
 
+const TaxRateSettings = ({ initialRate, onSave }: { initialRate: number, onSave: (rate: number) => void }) => {
+  const [inputValue, setInputValue] = useState(((initialRate || 0) * 100).toString());
+
+  useEffect(() => {
+    setInputValue(((initialRate || 0) * 100).toString());
+  }, [initialRate]);
+
+  return (
+    <div className="flex flex-col gap-4 p-6 bg-gray-50 dark:bg-white/5 rounded-[2rem]">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-xs font-black dark:text-white uppercase tracking-tight">Listing Tax Rate (%)</p>
+          <p className="text-[10px] text-gray-400 font-medium">Commission percentage per sale</p>
+        </div>
+        <div className="flex items-center gap-4">
+          <input 
+            type="text" 
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            className="w-20 bg-white dark:bg-gray-800 border border-gray-200 dark:border-white/10 rounded-xl px-4 py-2 text-xs font-black text-maroon text-center outline-none focus:ring-2 focus:ring-maroon"
+          />
+          <span className="text-xs font-black text-gray-400">%</span>
+        </div>
+      </div>
+      <button 
+        onClick={() => {
+          const rate = parseFloat(inputValue);
+          if (!isNaN(rate)) {
+            onSave(rate / 100);
+          } else {
+            toast.error('Please enter a valid number');
+          }
+        }}
+        className="w-full bg-maroon text-white py-3 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:scale-[1.02] transition-all"
+      >
+        Save Tax Rate
+      </button>
+    </div>
+  );
+};
+
 export default function App() {
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
   const [userProfile, setUserProfile] = useState<any>(null);
@@ -807,12 +848,21 @@ export default function App() {
     // Settings Listener
     const unsubSettings = onSnapshot(doc(db, 'settings', 'global'), (snapshot) => {
       if (snapshot.exists()) {
-        setAppSettings({ id: snapshot.id, ...snapshot.data() } as AppSettings);
+        const data = snapshot.data() as AppSettings;
+        setAppSettings({ id: snapshot.id, ...data } as AppSettings);
+        
+        // Migration: If tax rate is below 5%, update it (Admin only)
+        if (data.listingTaxRate < 0.05 && (userRole === 'admin' || ADMIN_EMAILS.includes(currentUser?.email || ''))) {
+          updateDoc(doc(db, 'settings', 'global'), { 
+            listingTaxRate: 0.05,
+            updatedAt: new Date().toISOString()
+          }).catch(e => console.error("Error migrating tax rate:", e));
+        }
       } else {
         const defaultSettings: AppSettings = {
           id: 'global',
           heroImageUrl: 'https://picsum.photos/seed/university/1920/1080',
-          listingTaxRate: 0.0175,
+          listingTaxRate: 0.05,
           updatedAt: new Date().toISOString()
         };
         // Only attempt to initialize if the user is an admin to avoid permission errors
@@ -1148,7 +1198,7 @@ export default function App() {
       const orderPromises = (Object.entries(itemsBySeller) as [string, CartItem[]][]).map(async ([sellerId, items]) => {
         const orderId = 'ORD-' + Math.random().toString(36).substr(2, 9).toUpperCase();
         const total = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-        const taxRate = Math.max(appSettings?.listingTaxRate || 0, 0.0175);
+        const taxRate = Math.max(appSettings?.listingTaxRate || 0, 0.05);
         const taxAmount = Number((total * taxRate).toFixed(2));
         
         const newOrder: Order = {
@@ -1172,6 +1222,7 @@ export default function App() {
           date: new Date().toISOString(),
           total: total,
           taxAmount: taxAmount,
+          taxPaidToAdmin: false,
           paymentMethod: paymentMethod
         };
         
@@ -1281,10 +1332,16 @@ export default function App() {
         }
       }
 
-      await updateDoc(orderRef, { 
+      const updates: any = { 
         status: newStatus,
         updatedAt: new Date().toISOString()
-      });
+      };
+
+      if (newStatus === 'DELIVERED') {
+        updates.taxPaidToAdmin = true;
+      }
+
+      await updateDoc(orderRef, updates);
       toast.success(`Order status updated to ${newStatus}`);
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `orders/${orderId}`);
@@ -1355,7 +1412,7 @@ export default function App() {
       setIsLoading(true);
       const finalUpdates = { ...updates };
       if (finalUpdates.listingTaxRate !== undefined) {
-        finalUpdates.listingTaxRate = Math.max(finalUpdates.listingTaxRate, 0.0175);
+        finalUpdates.listingTaxRate = Math.max(finalUpdates.listingTaxRate, 0.05);
       }
       const settingsRef = doc(db, 'settings', 'global');
       await setDoc(settingsRef, {
@@ -1567,6 +1624,18 @@ export default function App() {
                     onChange={(e) => setPrice(e.target.value)}
                   />
                 </div>
+                {price && Number(price) > 0 && (
+                  <div className="mt-2 p-4 bg-maroon/5 rounded-xl space-y-1">
+                    <div className="flex justify-between text-[10px] font-bold uppercase tracking-widest">
+                      <span className="text-gray-400">Listing Tax ({(appSettings?.listingTaxRate || 0.05) * 100}%)</span>
+                      <span className="text-maroon">₱{(Number(price) * (appSettings?.listingTaxRate || 0.05)).toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between text-[10px] font-black uppercase tracking-widest border-t border-maroon/10 pt-1">
+                      <span className="text-gray-500">Your Earnings</span>
+                      <span className="text-green-600">₱{(Number(price) * (1 - (appSettings?.listingTaxRate || 0.05))).toLocaleString()}</span>
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="space-y-3">
                 <label className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 ml-1">Stock Quantity</label>
@@ -3810,10 +3879,12 @@ export default function App() {
   const SellerDashboardView = () => {
     const myOrders = orders.filter(o => o.sellerId === currentUser?.uid);
     const validOrders = myOrders.filter(o => o.status !== 'CANCELLED' && o.status !== 'REJECTED');
+    const completedOrders = validOrders.filter(o => o.status === 'DELIVERED');
     const totalSales = validOrders.reduce((sum, order) => sum + order.total, 0);
     const totalOrders = validOrders.length;
-    const pendingOrders = myOrders.filter(o => o.status === 'PREPARING').length;
-    const totalTaxOwed = validOrders.reduce((sum, order) => sum + (order.taxAmount || 0), 0);
+    const pendingOrders = myOrders.filter(o => o.status === 'PREPARING' || o.status === 'SHIPPED').length;
+    const totalTaxOwed = completedOrders.reduce((sum, order) => sum + (order.taxAmount || 0), 0);
+    const pendingTax = validOrders.filter(o => o.status !== 'DELIVERED').reduce((sum, order) => sum + (order.taxAmount || 0), 0);
     
     // Accurate data for charts
     const revenueByDay = validOrders.reduce((acc: any, order) => {
@@ -3857,7 +3928,7 @@ export default function App() {
           </div>
 
           {/* Stats Grid - Hardware Recipe Influence */}
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6">
             <div className="bg-white dark:bg-gray-900 p-8 rounded-[2.5rem] shadow-sm border border-gray-100 dark:border-gray-800 flex items-center gap-6 group hover:shadow-xl transition-all duration-300">
               <div className="bg-green-500 w-16 h-16 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-green-500/20 group-hover:scale-110 transition-transform">
                 <DollarSign size={32} />
@@ -3870,12 +3941,22 @@ export default function App() {
             </div>
             <div className="bg-white dark:bg-gray-900 p-8 rounded-[2.5rem] shadow-sm border border-gray-100 dark:border-gray-800 flex items-center gap-6 group hover:shadow-xl transition-all duration-300">
               <div className="bg-maroon w-16 h-16 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-maroon/20 group-hover:scale-110 transition-transform">
-                <DollarSign size={32} />
+                <ShieldCheck size={32} />
               </div>
               <div>
-                <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-1">Tax Owed to Admin</p>
+                <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-1">Tax Owed (Completed)</p>
                 <p className="text-sm font-black text-gray-400 uppercase mb-1">PHP</p>
                 <p className="text-3xl font-black text-maroon tracking-tighter">{totalTaxOwed.toLocaleString()}</p>
+              </div>
+            </div>
+            <div className="bg-white dark:bg-gray-900 p-8 rounded-[2.5rem] shadow-sm border border-gray-100 dark:border-gray-800 flex items-center gap-6 group hover:shadow-xl transition-all duration-300">
+              <div className="bg-gray-500 w-16 h-16 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-gray-500/20 group-hover:scale-110 transition-transform">
+                <Clock size={32} />
+              </div>
+              <div>
+                <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-1">Tax Pending</p>
+                <p className="text-sm font-black text-gray-400 uppercase mb-1">PHP</p>
+                <p className="text-3xl font-black text-gray-500 tracking-tighter">{pendingTax.toLocaleString()}</p>
               </div>
             </div>
             <div className="bg-white dark:bg-gray-900 p-8 rounded-[2.5rem] shadow-sm border border-gray-100 dark:border-gray-800 flex items-center gap-6 group hover:shadow-xl transition-all duration-300">
@@ -4325,6 +4406,7 @@ export default function App() {
       totalCustomers: allUsers.filter(u => u.role === 'customer').length,
       totalOrders: validOrders.length,
       totalRevenue: validOrders.reduce((acc, curr) => acc + curr.total, 0),
+      totalTaxCollected: allOrders.filter(o => o.status === 'DELIVERED').reduce((acc, curr) => acc + (curr.taxAmount || 0), 0),
       blockedUsers: allUsers.filter(u => u.isBlocked).length,
       pendingOrders: allOrders.filter(o => o.status === 'PREPARING').length
     };
@@ -4366,7 +4448,7 @@ export default function App() {
           id: seller.uid,
           name: seller.displayName || seller.email,
           sales: sellerOrders.reduce((sum, o) => sum + o.total, 0),
-          taxOwed: sellerOrders.reduce((sum, o) => sum + (o.taxAmount || 0), 0),
+          taxPaid: sellerOrders.filter(o => o.status === 'DELIVERED').reduce((sum, o) => sum + (o.taxAmount || 0), 0),
           count: sellerOrders.length
         };
       })
@@ -4406,13 +4488,21 @@ export default function App() {
                 </motion.h2>
               </div>
 
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 w-full md:w-auto">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 w-full md:w-auto">
                 <div className="bg-white/10 backdrop-blur-xl p-6 rounded-[2rem] border border-white/10 shadow-2xl">
                   <p className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-2">Total Revenue</p>
                   <p className="text-2xl font-black text-white tracking-tighter">₱{stats.totalRevenue.toLocaleString()}</p>
                   <div className="mt-2 flex items-center gap-1 text-[10px] font-bold text-green-400">
                     <TrendingUp size={12} />
                     <span>+12.5%</span>
+                  </div>
+                </div>
+                <div className="bg-white/10 backdrop-blur-xl p-6 rounded-[2rem] border border-white/10 shadow-2xl">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-2">Tax Collected</p>
+                  <p className="text-2xl font-black text-white tracking-tighter">₱{stats.totalTaxCollected.toLocaleString()}</p>
+                  <div className="mt-2 flex items-center gap-1 text-[10px] font-bold text-blue-400">
+                    <ShieldCheck size={12} />
+                    <span>Verified</span>
                   </div>
                 </div>
                 <div className="bg-white/10 backdrop-blur-xl p-6 rounded-[2rem] border border-white/10 shadow-2xl">
@@ -4660,7 +4750,7 @@ export default function App() {
                                   </td>
                                   <td className="py-6 text-right">
                                     <div className="inline-flex flex-col items-end">
-                                      <span className="text-lg font-black text-maroon">₱{seller.taxOwed.toLocaleString()}</span>
+                                      <span className="text-lg font-black text-maroon">₱{seller.taxPaid.toLocaleString()}</span>
                                       <span className="text-[8px] font-black uppercase tracking-widest text-gray-400">{(appSettings?.listingTaxRate || 0) * 100}% Commission</span>
                                     </div>
                                   </td>
@@ -4889,23 +4979,10 @@ export default function App() {
                       </div>
 
                       <div className="space-y-6">
-                        <div className="flex items-center justify-between p-6 bg-gray-50 dark:bg-white/5 rounded-[2rem]">
-                          <div>
-                            <p className="text-xs font-black dark:text-white uppercase tracking-tight">Listing Tax Rate (%)</p>
-                            <p className="text-[10px] text-gray-400 font-medium">Commission percentage per sale</p>
-                          </div>
-                          <div className="flex items-center gap-4">
-                            <input 
-                              type="number" 
-                              step="0.01"
-                              min="1.75"
-                              value={(appSettings?.listingTaxRate || 0) * 100}
-                              onChange={(e) => updateAppSettings({ listingTaxRate: Math.max(parseFloat(e.target.value) || 0, 1.75) / 100 })}
-                              className="w-20 bg-white dark:bg-gray-800 border border-gray-200 dark:border-white/10 rounded-xl px-4 py-2 text-xs font-black text-maroon text-center outline-none focus:ring-2 focus:ring-maroon"
-                            />
-                            <span className="text-xs font-black text-gray-400">%</span>
-                          </div>
-                        </div>
+                        <TaxRateSettings 
+                          initialRate={appSettings?.listingTaxRate || 0} 
+                          onSave={(rate) => updateAppSettings({ listingTaxRate: rate })} 
+                        />
                         <div className="flex items-center justify-between p-6 bg-gray-50 dark:bg-white/5 rounded-[2rem]">
                           <div>
                             <p className="text-xs font-black dark:text-white uppercase tracking-tight">Seller Registration</p>

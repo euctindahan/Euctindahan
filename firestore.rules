@@ -67,7 +67,7 @@ service cloud.firestore {
     }
 
     function isValidOrder(data) {
-      return hasOnlyAllowedFields(['id', 'customerId', 'customerName', 'customerStudentId', 'sellerId', 'items', 'status', 'total', 'taxAmount', 'date', 'updatedAt', 'paymentMethod']) &&
+      return hasOnlyAllowedFields(['id', 'customerId', 'customerName', 'customerStudentId', 'sellerId', 'items', 'status', 'total', 'taxAmount', 'taxPaidToAdmin', 'date', 'updatedAt', 'paymentMethod']) &&
         data.id is string &&
         data.customerId is string &&
         data.customerName is string &&
@@ -76,6 +76,7 @@ service cloud.firestore {
         data.status in ['PREPARING', 'SHIPPED', 'DELIVERED', 'REJECTED', 'CANCELLED'] &&
         data.total is number && data.total >= 0 &&
         (!('taxAmount' in data) || data.taxAmount is number) &&
+        (!('taxPaidToAdmin' in data) || data.taxPaidToAdmin is bool) &&
         data.items is list && data.items.size() < 50 &&
         data.date is string &&
         (!('updatedAt' in data) || data.updatedAt is string) &&
