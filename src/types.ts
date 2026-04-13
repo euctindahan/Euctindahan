@@ -69,6 +69,8 @@ export interface Order {
   taxAmount?: number;
   taxPaidToAdmin?: boolean;
   paymentMethod: 'GCASH' | 'COD';
+  paymentScreenshot?: string;
+  paymentStatus?: 'PENDING' | 'VERIFIED' | 'FAILED';
   updatedAt?: string;
 }
 
@@ -93,6 +95,8 @@ export interface UserProfile {
   role: 'customer' | 'seller' | 'admin';
   bio?: string;
   studentId?: string;
+  gcashNumber?: string;
+  gcashName?: string;
   isBlocked?: boolean;
   createdAt: string;
 }
