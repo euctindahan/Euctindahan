@@ -19,6 +19,7 @@ import {
   Truck, 
   CheckCircle,
   CheckCircle2,
+  AlertCircle,
   Calendar,
   Eye,
   EyeOff,
@@ -44,12 +45,16 @@ import {
   Clock,
   LogOut,
   ShieldCheck,
+  ShieldAlert,
   CreditCard,
   Database,
   LayoutGrid,
   ChevronRight,
   ShoppingBag,
-  RefreshCw
+  RefreshCw,
+  Smartphone,
+  Save,
+  Link as LinkIcon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -555,6 +560,7 @@ export default function App() {
   const [pendingRestrictUser, setPendingRestrictUser] = useState<{ userId: string, currentStatus: boolean } | null>(null);
   const [passcodeInput, setPasscodeInput] = useState('');
   const [isPasscodeError, setIsPasscodeError] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
 
   const handlePasscodeSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -703,6 +709,32 @@ export default function App() {
         return prev;
       }
       
+      return prev.map(i => i.id === productId ? { ...i, quantity: newQuantity } : i);
+    });
+  };
+
+  const setCartQuantity = (productId: string, value: string) => {
+    const newQuantity = parseInt(value);
+    if (isNaN(newQuantity)) {
+      if (value === '') {
+        setCart(prev => prev.map(i => i.id === productId ? { ...i, quantity: 0 } : i));
+      }
+      return;
+    }
+
+    setCart(prev => {
+      const item = prev.find(i => i.id === productId);
+      if (!item) return prev;
+
+      if (newQuantity <= 0) {
+        return prev.map(i => i.id === productId ? { ...i, quantity: 0 } : i);
+      }
+
+      if (newQuantity > item.stock) {
+        toast.error(`Only ${item.stock} units available in stock.`);
+        return prev.map(i => i.id === productId ? { ...i, quantity: item.stock } : i);
+      }
+
       return prev.map(i => i.id === productId ? { ...i, quantity: newQuantity } : i);
     });
   };
@@ -862,10 +894,10 @@ export default function App() {
         const data = snapshot.data() as AppSettings;
         setAppSettings({ id: snapshot.id, ...data } as AppSettings);
         
-        // Migration: If tax rate is below 5%, update it (Admin only)
-        if (data.listingTaxRate < 0.05 && (userRole === 'admin' || ADMIN_EMAILS.includes(currentUser?.email || ''))) {
+        // Migration: If tax rate is above 5% (legacy) or not set, set to 0.5% as requested
+        if ((!data.listingTaxRate || data.listingTaxRate > 0.005) && (userRole === 'admin' || ADMIN_EMAILS.includes(currentUser?.email || ''))) {
           updateDoc(doc(db, 'settings', 'global'), { 
-            listingTaxRate: 0.05,
+            listingTaxRate: 0.005,
             updatedAt: new Date().toISOString()
           }).catch(e => console.error("Error migrating tax rate:", e));
         }
@@ -873,7 +905,7 @@ export default function App() {
         const defaultSettings: AppSettings = {
           id: 'global',
           heroImageUrl: 'https://picsum.photos/seed/university/1920/1080',
-          listingTaxRate: 0.05,
+          listingTaxRate: 0.005,
           updatedAt: new Date().toISOString()
         };
         // Only attempt to initialize if the user is an admin to avoid permission errors
@@ -949,6 +981,10 @@ export default function App() {
   // --- Auth Actions ---
 
   const handleGoogleLogin = async (forceSelect = false) => {
+    if (!termsAccepted && (currentView === 'signup' || currentView === 'login')) {
+      toast.error('Please accept the Terms of Service to continue.');
+      return;
+    }
     try {
       setIsLoading(true);
       if (forceSelect) {
@@ -1210,7 +1246,7 @@ export default function App() {
       const orderPromises = (Object.entries(itemsBySeller) as [string, CartItem[]][]).map(async ([sellerId, items]) => {
         const orderId = 'ORD-' + Math.random().toString(36).substr(2, 9).toUpperCase();
         const total = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-        const taxRate = Math.max(appSettings?.listingTaxRate || 0, 0.05);
+        const taxRate = appSettings?.listingTaxRate || 0.005;
         const taxAmount = Number((total * taxRate).toFixed(2));
         
         const newOrder: Order = {
@@ -1230,14 +1266,15 @@ export default function App() {
             stock: item.stock,
             quantity: item.quantity
           })),
-          status: 'PREPARING',
+          status: 'PENDING',
           date: new Date().toISOString(),
           total: total,
           taxAmount: taxAmount,
           taxPaidToAdmin: false,
           paymentMethod: paymentMethod,
           paymentStatus: paymentMethod === 'GCASH' ? 'PENDING' : undefined,
-          paymentScreenshot: paymentScreenshot || undefined
+          paymentScreenshot: paymentScreenshot || undefined,
+          isCustomerVerified: userProfile?.isVerified || false
         };
         
         await setDoc(doc(db, 'orders', orderId), newOrder);
@@ -1371,7 +1408,10 @@ export default function App() {
     role?: 'customer' | 'seller', 
     studentId?: string,
     gcashNumber?: string,
-    gcashName?: string
+    gcashName?: string,
+    isVerified?: boolean,
+    verificationStatus?: 'none' | 'pending' | 'verified' | 'rejected',
+    verificationData?: any
   }) => {
     if (!currentUser) return;
     try {
@@ -1897,7 +1937,7 @@ export default function App() {
                 initial={{ letterSpacing: '0.2em', opacity: 0 }}
                 animate={{ letterSpacing: '-0.05em', opacity: 1 }}
                 transition={{ delay: 0.8, duration: 1.5, ease: [0.16, 1, 0.3, 1] }}
-                className="text-white text-[clamp(2.5rem,10vw,8rem)] font-black uppercase tracking-tighter leading-[0.75] mb-2 drop-shadow-2xl"
+                className="text-white text-[clamp(2.5rem,10vw,8rem)] font-display font-black uppercase tracking-tighter leading-[0.75] mb-2 drop-shadow-2xl"
               >
                 Tindahang
               </motion.h2>
@@ -1905,7 +1945,7 @@ export default function App() {
                 initial={{ x: -100, opacity: 0 }}
                 animate={{ x: 0, opacity: 1 }}
                 transition={{ delay: 1.2, duration: 1.5, ease: [0.16, 1, 0.3, 1] }}
-                className="text-gradient italic text-[clamp(2.5rem,10vw,8rem)] font-black uppercase tracking-tighter leading-[0.75] ml-[2vw] md:ml-[15vw]"
+                className="text-gradient italic text-[clamp(2.5rem,10vw,8rem)] font-display font-black uppercase tracking-tighter leading-[0.75] ml-[2vw] md:ml-[15vw]"
               >
                 Envergista
               </motion.h2>
@@ -1984,32 +2024,33 @@ export default function App() {
           whileInView={{ y: 0, opacity: 1 }}
           viewport={{ once: true }}
           transition={{ duration: 1, ease: [0.16, 1, 0.3, 1] }}
-          className="bg-[#0a0a0a] dark:bg-[#0a0a0a] rounded-[2rem] md:rounded-[3rem] p-8 md:p-16 grid grid-cols-2 md:grid-cols-4 gap-8 md:gap-12 border border-white/10 shadow-[0_50px_100px_-20px_rgba(0,0,0,0.5)]"
+          className="bg-[#0a0a0a] dark:bg-[#0a0a0a] rounded-[3rem] md:rounded-[4rem] p-10 md:p-20 grid grid-cols-2 md:grid-cols-4 gap-10 md:gap-16 border border-white/10 shadow-premium relative overflow-hidden"
         >
+          <div className="absolute inset-0 bg-gradient-to-br from-maroon/10 via-transparent to-transparent"></div>
           {[
             { label: 'Active Sellers', value: `${appSettings ? (appSettings.activeSellers || 0) : 50}+`, icon: User, color: 'text-red-500' },
             { label: 'Unique Products', value: `${allProducts.length || (appSettings ? (appSettings.uniqueProducts || 0) : 200)}+`, icon: Package, color: 'text-maroon' },
             { label: 'Student Orders', value: appSettings ? (appSettings.studentOrders >= 1000 ? `${(appSettings.studentOrders / 1000).toFixed(1)}k` : (appSettings.studentOrders || 0)) : '1.2k', icon: ShoppingCart, color: 'text-white' },
             { label: 'Community Rating', value: `${(reviews.length > 0 ? (reviews.reduce((s, r) => s + r.rating, 0) / reviews.length) : (appSettings?.communityRating || 4.9)).toFixed(1)}/5`, icon: Star, color: 'text-yellow-500' }
           ].map((stat, i) => (
-            <div key={i} className="flex flex-col gap-6 group">
+            <div key={i} className="flex flex-col gap-8 group relative z-10">
               <div className="flex items-center justify-between">
-                <div className={`w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center ${stat.color} group-hover:scale-110 transition-transform duration-500`}>
-                  <stat.icon size={24} />
+                <div className={`w-14 h-14 bg-white/5 rounded-2xl flex items-center justify-center ${stat.color} group-hover:scale-110 group-hover:rotate-6 transition-all duration-500 border border-white/5`}>
+                  <stat.icon size={28} />
                 </div>
-                <span className="text-white/10 font-mono text-xs">0{i+1}</span>
+                <span className="text-white/10 font-mono text-xs tracking-widest">0{i+1}</span>
               </div>
-              <div className="space-y-1">
-                <p className="text-white text-4xl md:text-5xl font-black tracking-tighter leading-none group-hover:text-maroon transition-colors duration-500">{stat.value}</p>
-                <p className="text-white/40 text-[10px] font-black uppercase tracking-[0.3em] mt-2">{stat.label}</p>
+              <div className="space-y-2">
+                <p className="text-white text-5xl md:text-6xl font-display font-black tracking-tighter leading-none group-hover:text-maroon transition-colors duration-500">{stat.value}</p>
+                <p className="text-white/40 text-[10px] font-black uppercase tracking-[0.4em] mt-3">{stat.label}</p>
               </div>
-              <div className="w-full h-px bg-white/10 overflow-hidden">
+              <div className="w-full h-px bg-white/10 overflow-hidden rounded-full">
                 <motion.div 
                   initial={{ x: '-100%' }}
                   whileInView={{ x: '0%' }}
                   viewport={{ once: true }}
-                  transition={{ delay: 0.5 + (i * 0.1), duration: 1 }}
-                  className="w-full h-full bg-maroon"
+                  transition={{ delay: 0.5 + (i * 0.1), duration: 1.2, ease: "circOut" }}
+                  className="w-full h-full bg-maroon shadow-[0_0_10px_rgba(128,0,0,0.5)]"
                 ></motion.div>
               </div>
             </div>
@@ -2047,23 +2088,23 @@ export default function App() {
               transition={{ delay: idx * 0.1, duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
               whileHover={{ y: -20 }}
               onClick={() => { setSelectedCategory(cat.id); navigateTo('shop'); }}
-              className={`group relative h-[500px] rounded-[3rem] overflow-hidden cursor-pointer shadow-premium transition-all duration-700 ${idx % 2 === 0 ? 'bg-maroon text-white' : 'bg-white dark:bg-[#0a0a0a] text-maroon border border-gray-100 dark:border-white/5'}`}
+              className={`group relative h-[500px] rounded-[3.5rem] overflow-hidden cursor-pointer shadow-premium transition-all duration-700 ${idx % 2 === 0 ? 'bg-maroon text-white' : 'bg-white dark:bg-[#0a0a0a] text-maroon border border-gray-100 dark:border-white/5'}`}
             >
               <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-all duration-700">
-                <div className="absolute inset-0 bg-gradient-to-b from-transparent via-black/20 to-black/60"></div>
+                <div className="absolute inset-0 bg-gradient-to-b from-transparent via-black/10 to-black/40 backdrop-blur-[2px]"></div>
               </div>
               
-              <div className="absolute inset-0 flex flex-col items-center justify-center p-12 text-center space-y-8">
+              <div className="absolute inset-0 flex flex-col items-center justify-center p-12 text-center space-y-10">
                 <motion.span 
-                  animate={{ y: [0, -10, 0], rotate: [0, 5, 0] }}
-                  transition={{ duration: 4, repeat: Infinity, delay: idx * 0.5 }}
-                  className="text-8xl transform group-hover:scale-125 transition-transform duration-1000 group-hover:rotate-12"
+                  animate={{ y: [0, -15, 0], rotate: [0, 8, 0] }}
+                  transition={{ duration: 5, repeat: Infinity, delay: idx * 0.5, ease: "easeInOut" }}
+                  className="text-8xl transform group-hover:scale-125 transition-transform duration-1000 group-hover:rotate-12 drop-shadow-2xl"
                 >
                   {cat.icon}
                 </motion.span>
-                <div className="space-y-4">
-                  <h4 className="text-lg font-black uppercase tracking-[0.3em]">{cat.name}</h4>
-                  <div className={`w-16 h-1.5 mx-auto rounded-full transition-all duration-700 group-hover:w-32 ${idx % 2 === 0 ? 'bg-white/30 group-hover:bg-white' : 'bg-maroon/20 group-hover:bg-maroon'}`}></div>
+                <div className="space-y-5">
+                  <h4 className="text-xl font-display font-black uppercase tracking-[0.4em]">{cat.name}</h4>
+                  <div className={`w-16 h-2 mx-auto rounded-full transition-all duration-700 group-hover:w-40 ${idx % 2 === 0 ? 'bg-white/30 group-hover:bg-white shadow-[0_0_15px_rgba(255,255,255,0.5)]' : 'bg-maroon/20 group-hover:bg-maroon shadow-[0_0_15px_rgba(128,0,0,0.3)]'}`}></div>
                 </div>
               </div>
 
@@ -2183,6 +2224,97 @@ export default function App() {
               </div>
             )}
           </div>
+        </div>
+      </section>
+
+      {/* Roles & Community Section - New Detailed Section */}
+      <section className="py-32 px-6 bg-white dark:bg-[#080808] relative">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center space-y-6 mb-24">
+            <div className="flex items-center justify-center gap-4">
+              <div className="w-12 h-px bg-maroon"></div>
+              <span className="text-maroon font-black text-[10px] uppercase tracking-[0.5em]">The Envergista Ecosystem</span>
+              <div className="w-12 h-px bg-maroon"></div>
+            </div>
+            <h3 className="text-6xl md:text-8xl font-black uppercase tracking-tighter dark:text-white leading-none">
+              A Platform for <br /><span className="text-maroon italic">Everyone</span>
+            </h3>
+            <p className="text-gray-500 dark:text-gray-400 text-lg md:text-xl font-medium max-w-2xl mx-auto leading-relaxed">
+              Tindahang Envergista thrives on the collaboration between students, creators, and administration. Here's how each role powers our marketplace.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
+            {[
+              {
+                role: "The Customer",
+                icon: ShoppingCart,
+                color: "blue",
+                description: "Students & faculty browsing for unique Enverga-made crafts. Every purchase supports a peer's entrepreneurial journey.",
+                features: ["Verified Transactions", "Integrated Chat", "Multiple Payment Options"]
+              },
+              {
+                role: "The Seller",
+                icon: ShoppingBag,
+                color: "maroon",
+                description: "Student makers showcasing their talents. Our verification process ensures every item meets university standards.",
+                features: ["Shop Dashboard", "Inventory Tracking", "Sales Analytics"]
+              },
+              {
+                role: "The Admin",
+                icon: ShieldCheck,
+                color: "orange",
+                description: "University support overseeing safety and verification. Providing help to ensure a secure student economy.",
+                features: ["ID Verification", "Safety Monitoring", "Dispute Assistance"]
+              }
+            ].map((item, i) => (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, y: 30 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ delay: i * 0.2 }}
+                className="bg-gray-50 dark:bg-white/5 p-12 rounded-[4rem] border border-gray-100 dark:border-white/5 space-y-8 group hover:border-maroon transition-all duration-700 hover:shadow-premium"
+              >
+                <div className={`w-20 h-20 rounded-3xl flex items-center justify-center bg-maroon/5 text-maroon group-hover:bg-maroon group-hover:text-white transition-all duration-700`}>
+                  <item.icon size={36} />
+                </div>
+                <div className="space-y-4">
+                  <h4 className="text-2xl font-black uppercase tracking-tight dark:text-white">{item.role}</h4>
+                  <p className="text-gray-500 dark:text-gray-400 text-sm font-medium leading-relaxed">{item.description}</p>
+                </div>
+                <ul className="space-y-3">
+                  {item.features.map((feature, idx) => (
+                    <li key={idx} className="flex items-center gap-3 text-gray-400 dark:text-gray-500 text-[10px] font-black uppercase tracking-widest">
+                      <div className="w-1.5 h-1.5 rounded-full bg-maroon"></div>
+                      {feature}
+                    </li>
+                  ))}
+                </ul>
+              </motion.div>
+            ))}
+          </div>
+
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            whileInView={{ opacity: 1, scale: 1 }}
+            viewport={{ once: true }}
+            className="mt-24 p-12 bg-maroon text-white rounded-[4rem] shadow-premium flex flex-col md:flex-row items-center justify-between gap-12 overflow-hidden relative"
+          >
+            <div className="absolute inset-0 bg-gradient-to-br from-black/20 to-transparent"></div>
+            <div className="relative z-10 space-y-4 text-center md:text-left">
+              <h4 className="text-3xl font-black uppercase tracking-tighter">Safety is our Priority</h4>
+              <p className="text-white/70 font-medium max-w-xl text-lg leading-relaxed">
+                We've implemented strict student-only verification and secure communications to protect our community.
+              </p>
+            </div>
+            <button 
+              onClick={() => navigateTo('safety')}
+              className="relative z-10 bg-white text-maroon px-12 py-5 rounded-2xl font-black uppercase text-xs tracking-[0.3em] hover:bg-black hover:text-white transition-all shadow-2xl"
+            >
+              Learn More About Safety
+            </button>
+          </motion.div>
         </div>
       </section>
 
@@ -2317,12 +2449,25 @@ export default function App() {
             </button>
           </div>
 
-          <div className="space-y-4">
+          <div className="space-y-6">
+            <div className="flex items-center gap-3 px-4">
+              <input 
+                type="checkbox" 
+                id="terms" 
+                checked={termsAccepted} 
+                onChange={(e) => setTermsAccepted(e.target.checked)}
+                className="w-5 h-5 rounded border-gray-300 text-maroon focus:ring-maroon transition-all cursor-pointer"
+              />
+              <label htmlFor="terms" className="text-[10px] font-bold text-gray-400 uppercase tracking-widest cursor-pointer select-none">
+                I accept the <button onClick={(e) => { e.stopPropagation(); navigateTo('about'); }} className="text-maroon hover:underline">Marketplace Terms</button> & <button onClick={(e) => { e.stopPropagation(); navigateTo('safety'); }} className="text-maroon hover:underline">Safety Rules</button>
+              </label>
+            </div>
+
             <motion.button 
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               onClick={() => handleGoogleLogin()}
-              className="w-full bg-white dark:bg-gray-800 text-gray-900 dark:text-white border border-gray-100 dark:border-white/10 px-8 py-5 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-soft flex items-center justify-center gap-4 hover:border-maroon transition-all"
+              className={`w-full bg-white dark:bg-gray-800 text-gray-900 dark:text-white border border-gray-100 dark:border-white/10 px-8 py-5 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-soft flex items-center justify-center gap-4 hover:border-maroon transition-all ${!termsAccepted ? 'opacity-50 cursor-not-allowed border-dashed' : ''}`}
             >
               <img src="https://www.google.com/favicon.ico" className="w-5 h-5" alt="Google" />
               Continue with Google
@@ -2376,12 +2521,25 @@ export default function App() {
         </div>
 
         <div className="glass rounded-[3rem] p-10 shadow-premium border border-white/20 space-y-8">
-          <div className="space-y-4">
+          <div className="space-y-6">
+            <div className="flex items-center gap-3 px-4">
+              <input 
+                type="checkbox" 
+                id="login-terms" 
+                checked={termsAccepted} 
+                onChange={(e) => setTermsAccepted(e.target.checked)}
+                className="w-5 h-5 rounded border-gray-300 text-maroon focus:ring-maroon transition-all cursor-pointer"
+              />
+              <label htmlFor="login-terms" className="text-[10px] font-bold text-gray-400 uppercase tracking-widest cursor-pointer select-none">
+                I accept the <button onClick={(e) => { e.stopPropagation(); navigateTo('about'); }} className="text-maroon hover:underline">Marketplace Terms</button> & <button onClick={(e) => { e.stopPropagation(); navigateTo('safety'); }} className="text-maroon hover:underline">Safety Rules</button>
+              </label>
+            </div>
+
             <motion.button 
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               onClick={() => handleGoogleLogin()}
-              className="w-full bg-white dark:bg-gray-800 text-gray-900 dark:text-white border border-gray-100 dark:border-white/10 px-8 py-5 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-soft flex items-center justify-center gap-4 hover:border-maroon transition-all"
+              className={`w-full bg-white dark:bg-gray-800 text-gray-900 dark:text-white border border-gray-100 dark:border-white/10 px-8 py-5 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-soft flex items-center justify-center gap-4 hover:border-maroon transition-all ${!termsAccepted ? 'opacity-50 cursor-not-allowed border-dashed' : ''}`}
             >
               <img src="https://www.google.com/favicon.ico" className="w-5 h-5" alt="Google" />
               Sign in with Google
@@ -2849,6 +3007,83 @@ export default function App() {
     );
   };
 
+  const CartItemRow: React.FC<{ item: any }> = ({ item }) => {
+    const [localQty, setLocalQty] = useState(item.quantity === 0 ? '' : item.quantity.toString());
+
+    useEffect(() => {
+      setLocalQty(item.quantity === 0 ? '' : item.quantity.toString());
+    }, [item.quantity]);
+
+    const handleQtyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const val = e.target.value;
+      if (val === '' || /^\d+$/.test(val)) {
+        setLocalQty(val);
+        if (val !== '') {
+          setCartQuantity(item.id, val);
+        }
+      }
+    };
+
+    const handleBlur = () => {
+      if (localQty === '' || parseInt(localQty) === 0) {
+        removeFromCart(item.id);
+      } else {
+        setCartQuantity(item.id, localQty);
+      }
+    };
+
+    return (
+      <motion.div 
+        layout
+        key={item.id} 
+        className="bg-white dark:bg-gray-900 rounded-3xl p-4 flex gap-6 shadow-sm border border-gray-50 dark:border-gray-800 group"
+      >
+        <div className="w-24 h-24 rounded-2xl overflow-hidden shrink-0">
+          <img src={item.images[0]} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" alt={item.name} />
+        </div>
+        <div className="flex-1 flex flex-col justify-between py-1">
+          <div className="flex justify-between items-start">
+            <div className="space-y-0.5">
+              <h3 className="font-black text-lg uppercase tracking-tight text-gray-900 dark:text-white leading-tight">{item.name}</h3>
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Quantity: {item.quantity}</p>
+            </div>
+            <button 
+              onClick={() => removeFromCart(item.id)} 
+              className="text-gray-300 hover:text-red-500 transition-colors p-1"
+            >
+              <Trash2 size={18} />
+            </button>
+          </div>
+          <div className="flex justify-between items-end">
+            <p className="font-black text-maroon text-xl">₱{(item.price * item.quantity).toLocaleString()}</p>
+            <div className="flex items-center gap-3 bg-gray-50 dark:bg-gray-800 rounded-xl px-3 py-1.5">
+              <button 
+                onClick={() => updateCartQuantity(item.id, -1)}
+                className="text-gray-400 hover:text-maroon font-black transition-colors w-6 h-6 flex items-center justify-center"
+              >
+                -
+              </button>
+              <input 
+                type="text"
+                inputMode="numeric"
+                value={localQty}
+                onChange={handleQtyChange}
+                onBlur={handleBlur}
+                className="text-xs font-black dark:text-white w-10 text-center bg-transparent border-none outline-none focus:ring-0 p-0"
+              />
+              <button 
+                onClick={() => updateCartQuantity(item.id, 1)}
+                className="text-gray-400 hover:text-maroon font-black transition-colors w-6 h-6 flex items-center justify-center"
+              >
+                +
+              </button>
+            </div>
+          </div>
+        </div>
+      </motion.div>
+    );
+  };
+
   const CartView = () => (
     <div className="pb-32 bg-gray-50 dark:bg-black min-h-screen">
       <Header {...headerProps} />
@@ -2885,47 +3120,7 @@ export default function App() {
           <div className="space-y-6">
             <div className="space-y-4">
               {cart.map(item => (
-                <motion.div 
-                  layout
-                  key={item.id} 
-                  className="bg-white dark:bg-gray-900 rounded-3xl p-4 flex gap-6 shadow-sm border border-gray-50 dark:border-gray-800 group"
-                >
-                  <div className="w-24 h-24 rounded-2xl overflow-hidden shrink-0">
-                    <img src={item.images[0]} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" alt={item.name} />
-                  </div>
-                  <div className="flex-1 flex flex-col justify-between py-1">
-                    <div className="flex justify-between items-start">
-                      <div className="space-y-0.5">
-                        <h3 className="font-black text-lg uppercase tracking-tight text-gray-900 dark:text-white leading-tight">{item.name}</h3>
-                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Quantity: {item.quantity}</p>
-                      </div>
-                      <button 
-                        onClick={() => removeFromCart(item.id)} 
-                        className="text-gray-300 hover:text-red-500 transition-colors p-1"
-                      >
-                        <Trash2 size={18} />
-                      </button>
-                    </div>
-                    <div className="flex justify-between items-end">
-                      <p className="font-black text-maroon text-xl">₱{(item.price * item.quantity).toLocaleString()}</p>
-                      <div className="flex items-center gap-3 bg-gray-50 dark:bg-gray-800 rounded-xl px-3 py-1.5">
-                        <button 
-                          onClick={() => updateCartQuantity(item.id, -1)}
-                          className="text-gray-400 hover:text-maroon font-black transition-colors w-6 h-6 flex items-center justify-center"
-                        >
-                          -
-                        </button>
-                        <span className="text-xs font-black dark:text-white w-4 text-center">{item.quantity}</span>
-                        <button 
-                          onClick={() => updateCartQuantity(item.id, 1)}
-                          className="text-gray-400 hover:text-maroon font-black transition-colors w-6 h-6 flex items-center justify-center"
-                        >
-                          +
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </motion.div>
+                <CartItemRow key={item.id} item={item} />
               ))}
             </div>
             
@@ -2972,6 +3167,13 @@ export default function App() {
   );
 
   const CheckoutView = () => {
+    useEffect(() => {
+      if (!currentUser) {
+        toast.error('Please login to continue to checkout.');
+        navigateTo('login');
+      }
+    }, [currentUser]);
+
     const [paymentMethod, setPaymentMethod] = useState<'GCASH' | 'COD'>('GCASH');
     const [studentName, setStudentName] = useState(currentUser?.displayName || '');
     const [studentId, setStudentId] = useState('');
@@ -3157,8 +3359,16 @@ export default function App() {
                       type="text" 
                       className="w-full bg-white dark:bg-gray-900 border-none rounded-2xl px-5 py-4 focus:ring-2 ring-maroon outline-none font-bold text-gray-900 dark:text-white shadow-sm transition-all" 
                       value={studentId}
-                      onChange={(e) => setStudentId(e.target.value)}
-                      placeholder="e.g. A24-1234"
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        const clean = val.replace(/[^a-zA-Z0-9]/g, '');
+                        if (clean.length <= 3) {
+                          setStudentId(clean);
+                        } else {
+                          setStudentId(`${clean.slice(0, 3)}-${clean.slice(3, 10)}`);
+                        }
+                      }}
+                      placeholder="e.g. A24-123"
                       required 
                     />
                   </div>
@@ -3393,6 +3603,7 @@ export default function App() {
                         <span className={`text-[10px] font-black uppercase tracking-[0.2em] px-6 py-2 rounded-full shadow-sm ${
                           order.status === 'DELIVERED' ? 'bg-green-500 text-white' : 
                           order.status === 'SHIPPED' ? 'bg-blue-500 text-white' : 
+                          order.status === 'PREPARING' ? 'bg-orange-500 text-white' :
                           order.status === 'REJECTED' ? 'bg-red-500 text-white' :
                           order.status === 'CANCELLED' ? 'bg-gray-500 text-white' :
                           'bg-yellow-500 text-white'
@@ -3409,7 +3620,20 @@ export default function App() {
                             </div>
                             <div>
                               <p className="text-[9px] font-black uppercase tracking-widest text-gray-400">Customer</p>
-                              <p className="text-sm font-black uppercase tracking-tight text-gray-900 dark:text-white">{order.customerName}</p>
+                              <div className="flex items-center gap-2">
+                                <p className="text-sm font-black uppercase tracking-tight text-gray-900 dark:text-white">{order.customerName}</p>
+                                {order.isCustomerVerified ? (
+                                  <div className="flex items-center gap-1 bg-blue-500/10 text-blue-600 px-2 py-0.5 rounded-full border border-blue-200">
+                                    <ShieldCheck size={10} />
+                                    <span className="text-[8px] font-black uppercase tracking-widest">Verified Customer</span>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center gap-1 bg-yellow-500/10 text-yellow-700 px-2 py-0.5 rounded-full border border-yellow-200">
+                                    <AlertCircle size={10} />
+                                    <span className="text-[8px] font-black uppercase tracking-widest">Unverified Customer</span>
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           </div>
                           {order.customerStudentId && (
@@ -3524,16 +3748,16 @@ export default function App() {
 
                   <div className="pt-10 border-t border-gray-100 dark:border-gray-800 flex flex-col sm:flex-row justify-between items-center gap-8 relative z-10">
                     <div className="flex flex-wrap gap-4 w-full sm:w-auto">
-                      {order.status === 'PREPARING' && (
+                      {order.status === 'PENDING' && (
                         <>
                           <motion.button 
                             whileHover={{ scale: 1.02 }}
                             whileTap={{ scale: 0.98 }}
-                            onClick={() => updateOrderStatus(order.id, 'SHIPPED')}
-                            className="flex-1 sm:flex-none bg-maroon text-white px-10 py-5 rounded-2xl font-black uppercase text-[10px] tracking-[0.2em] shadow-premium hover:bg-black transition-all flex items-center justify-center gap-3"
+                            onClick={() => updateOrderStatus(order.id, 'PREPARING')}
+                            className="flex-1 sm:flex-none bg-orange-500 text-white px-10 py-5 rounded-2xl font-black uppercase text-[10px] tracking-[0.2em] shadow-premium hover:bg-black transition-all flex items-center justify-center gap-3"
                           >
-                            <Truck size={16} />
-                            Ship Order
+                            <Clock size={16} />
+                            Prepare Order
                           </motion.button>
                           <motion.button 
                             whileHover={{ scale: 1.02 }}
@@ -3548,6 +3772,19 @@ export default function App() {
                             className="flex-1 sm:flex-none bg-white dark:bg-gray-800 border-2 border-red-100 dark:border-red-900/30 text-red-600 px-10 py-5 rounded-2xl font-black uppercase text-[10px] tracking-[0.2em] hover:bg-red-600 hover:text-white transition-all"
                           >
                             Reject
+                          </motion.button>
+                        </>
+                      )}
+                      {order.status === 'PREPARING' && (
+                        <>
+                          <motion.button 
+                            whileHover={{ scale: 1.02 }}
+                            whileTap={{ scale: 0.98 }}
+                            onClick={() => updateOrderStatus(order.id, 'SHIPPED')}
+                            className="flex-1 sm:flex-none bg-maroon text-white px-10 py-5 rounded-2xl font-black uppercase text-[10px] tracking-[0.2em] shadow-premium hover:bg-black transition-all flex items-center justify-center gap-3"
+                          >
+                            <Truck size={16} />
+                            Ship Order
                           </motion.button>
                         </>
                       )}
@@ -3676,6 +3913,7 @@ export default function App() {
                         <span className={`text-[10px] font-black uppercase tracking-[0.2em] px-6 py-2 rounded-full shadow-sm ${
                           order.status === 'DELIVERED' ? 'bg-green-500 text-white' : 
                           order.status === 'SHIPPED' ? 'bg-blue-500 text-white' : 
+                          order.status === 'PREPARING' ? 'bg-orange-500 text-white' :
                           order.status === 'REJECTED' ? 'bg-red-500 text-white' :
                           order.status === 'CANCELLED' ? 'bg-gray-500 text-white' :
                           'bg-yellow-500 text-white'
@@ -3804,9 +4042,10 @@ export default function App() {
   const ProfileView = () => (
     <div className="pb-24 bg-gray-50 dark:bg-[#0a0a0a] min-h-screen">
       <Header {...headerProps} />
-      <div className="bg-maroon text-white p-8 pt-16 rounded-b-[4rem] shadow-2xl relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-96 h-96 bg-white/10 rounded-full -mr-48 -mt-48 blur-3xl animate-pulse"></div>
-        <div className="absolute bottom-0 left-0 w-64 h-64 bg-black/20 rounded-full -ml-32 -mb-32 blur-2xl"></div>
+      <div className="bg-maroon text-white p-8 pt-20 rounded-b-[5rem] shadow-2xl relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-maroon via-red-950 to-black opacity-40"></div>
+        <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-white/5 rounded-full -mr-64 -mt-64 blur-[100px] animate-pulse"></div>
+        <div className="absolute bottom-0 left-0 w-96 h-96 bg-black/30 rounded-full -ml-48 -mb-48 blur-[80px]"></div>
         
         <div className="relative z-10 flex flex-col items-center">
           <motion.div 
@@ -3814,26 +4053,30 @@ export default function App() {
             animate={{ scale: 1, opacity: 1 }}
             className="relative group"
           >
-            <div className="absolute inset-0 bg-white/20 rounded-full blur-xl group-hover:blur-2xl transition-all duration-500"></div>
-            <img 
-              src={currentUser?.photoURL || `https://ui-avatars.com/api/?name=${currentUser?.displayName}&background=random`} 
-              className="w-36 h-36 rounded-full object-cover border-4 border-white/30 shadow-2xl relative z-10 group-hover:scale-105 transition-transform duration-500" 
-              alt="Profile" 
-            />
-            <button 
+            <div className="absolute inset-0 bg-white/20 rounded-full blur-2xl group-hover:blur-3xl transition-all duration-700"></div>
+            <div className="relative p-1.5 bg-white/10 backdrop-blur-xl rounded-full border border-white/20 shadow-2xl">
+              <img 
+                src={currentUser?.photoURL || `https://ui-avatars.com/api/?name=${currentUser?.displayName}&background=random`} 
+                className="w-40 h-40 rounded-full object-cover border-4 border-white/30 relative z-10 group-hover:scale-105 transition-transform duration-700" 
+                alt="Profile" 
+              />
+            </div>
+            <motion.button 
+              whileHover={{ scale: 1.1, rotate: 15 }}
+              whileTap={{ scale: 0.9 }}
               onClick={() => navigateTo('edit-profile')}
-              className="absolute bottom-2 right-2 bg-white p-3 rounded-2xl text-maroon shadow-2xl hover:scale-110 transition-transform z-20"
+              className="absolute bottom-2 right-2 bg-white p-4 rounded-[1.5rem] text-maroon shadow-2xl z-20 border-4 border-maroon/10"
             >
               <Camera size={20} />
-            </button>
+            </motion.button>
           </motion.div>
           
-          <div className="text-center mt-8 space-y-3">
+          <div className="text-center mt-10 space-y-4">
             <motion.h3 
               initial={{ y: 20, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               transition={{ delay: 0.1 }}
-              className="font-black text-4xl uppercase tracking-tighter leading-none"
+              className="font-display font-black text-5xl uppercase tracking-tighter leading-none"
             >
               {currentUser?.displayName || 'Student User'}
             </motion.h3>
@@ -3843,16 +4086,33 @@ export default function App() {
               transition={{ delay: 0.2 }}
               className="flex items-center justify-center gap-3"
             >
-              <span className="bg-white/20 backdrop-blur-md px-5 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest border border-white/10">
+              <span className="bg-white/10 backdrop-blur-xl px-6 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-[0.3em] border border-white/10 shadow-lg">
                 {userProfile?.role || 'customer'}
               </span>
-              {userProfile?.role === 'seller' && (
-                <div className="bg-blue-500/20 backdrop-blur-md px-4 py-2 rounded-2xl flex items-center gap-2 border border-blue-400/20">
-                  <ShieldCheck size={14} className="text-blue-300" />
-                  <span className="text-[9px] font-black uppercase tracking-widest text-blue-100">Verified Seller</span>
+              {userProfile?.isVerified ? (
+                <div className="bg-blue-500/20 backdrop-blur-xl px-5 py-2.5 rounded-2xl flex items-center gap-2 border border-blue-400/20 shadow-[0_0_20px_rgba(59,130,246,0.2)]">
+                  <ShieldCheck size={16} className="text-blue-300" />
+                  <span className="text-[10px] font-black uppercase tracking-widest text-blue-100">Verified {userProfile.role === 'seller' ? 'Seller' : 'Student'}</span>
+                </div>
+              ) : (
+                <div className="bg-yellow-500/20 backdrop-blur-xl px-5 py-2.5 rounded-2xl flex items-center gap-2 border border-yellow-400/20 shadow-[0_0_20px_rgba(245,158,11,0.2)]">
+                  <AlertCircle size={16} className="text-yellow-300" />
+                  <span className="text-[10px] font-black uppercase tracking-widest text-yellow-100">Unverified</span>
                 </div>
               )}
             </motion.div>
+
+            {userProfile?.verificationStatus === 'pending' && (
+              <motion.div
+                initial={{ y: 20, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ delay: 0.3 }}
+                className="bg-blue-500/10 backdrop-blur-md px-6 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest border border-blue-500/20 text-blue-200 flex items-center gap-2 mt-4"
+              >
+                <Clock size={14} />
+                Verification Pending
+              </motion.div>
+            )}
             <motion.p 
               initial={{ y: 20, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
@@ -3871,6 +4131,16 @@ export default function App() {
                 Student ID: {userProfile.studentId}
               </motion.p>
             )}
+            {userProfile?.bio && (
+              <motion.p 
+                initial={{ y: 20, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ delay: 0.4 }}
+                className="text-white/80 text-sm font-medium max-w-xs mx-auto mt-4 leading-relaxed italic"
+              >
+                "{userProfile.bio}"
+              </motion.p>
+            )}
             {userProfile?.role === 'admin' && ADMIN_EMAILS.includes(currentUser?.email) && (
               <motion.button 
                 initial={{ y: 20, opacity: 0 }}
@@ -3887,40 +4157,42 @@ export default function App() {
         </div>
       </div>
       
-      <div className="p-6 -mt-12 relative z-20 max-w-2xl mx-auto">
+      <div className="p-6 -mt-16 relative z-20 max-w-2xl mx-auto">
         <motion.div 
           initial={{ y: 40, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           transition={{ delay: 0.4 }}
-          className="bg-white dark:bg-gray-900 rounded-[3rem] shadow-2xl p-10 grid grid-cols-2 gap-10 border border-gray-100 dark:border-gray-800"
+          className="bg-white dark:bg-gray-900 rounded-[4rem] shadow-premium p-12 grid grid-cols-2 gap-8 border border-gray-100 dark:border-white/5"
         >
           {userProfile?.role === 'customer' ? (
             <>
               <button onClick={() => navigateTo('cart')} className="flex flex-col items-center gap-4 group">
-                <div className="w-20 h-20 bg-maroon/5 dark:bg-maroon/20 rounded-[2rem] flex items-center justify-center text-maroon dark:text-red-400 group-hover:bg-maroon group-hover:text-white transition-all duration-500 shadow-sm group-hover:shadow-xl group-hover:-translate-y-2">
-                  <ShoppingCart size={32} />
+                <div className="w-24 h-24 bg-maroon/5 dark:bg-maroon/20 rounded-[2.5rem] flex items-center justify-center text-maroon dark:text-red-400 group-hover:bg-maroon group-hover:text-white transition-all duration-500 shadow-sm group-hover:shadow-premium group-hover:-translate-y-3">
+                  <ShoppingCart size={36} />
                 </div>
-                <span className="text-[10px] font-black uppercase tracking-widest text-gray-900 dark:text-gray-300">My Cart</span>
+                <span className="text-[11px] font-black uppercase tracking-[0.2em] text-gray-900 dark:text-gray-300">My Cart</span>
               </button>
               <button onClick={() => navigateTo('orders')} className="flex flex-col items-center gap-4 group">
-                <div className="w-20 h-20 bg-maroon/5 dark:bg-maroon/20 rounded-[2rem] flex items-center justify-center text-maroon dark:text-red-400 group-hover:bg-maroon group-hover:text-white transition-all duration-500 shadow-sm group-hover:shadow-xl group-hover:-translate-y-2">
-                  <ClipboardList size={32} />
+                <div className="w-24 h-24 bg-maroon/5 dark:bg-maroon/20 rounded-[2.5rem] flex items-center justify-center text-maroon dark:text-red-400 group-hover:bg-maroon group-hover:text-white transition-all duration-500 shadow-sm group-hover:shadow-premium group-hover:-translate-y-3">
+                  <ClipboardList size={36} />
                 </div>
-                <span className="text-[10px] font-black uppercase tracking-widest text-gray-900 dark:text-gray-300">My Orders</span>
+                <span className="text-[11px] font-black uppercase tracking-[0.2em] text-gray-900 dark:text-gray-300">My Orders</span>
               </button>
               <button onClick={() => navigateTo('wishlist')} className="flex flex-col items-center gap-4 group">
-                <div className="w-20 h-20 bg-maroon/5 dark:bg-maroon/20 rounded-[2rem] flex items-center justify-center text-maroon dark:text-red-400 group-hover:bg-maroon group-hover:text-white transition-all duration-500 shadow-sm group-hover:shadow-xl group-hover:-translate-y-2">
-                  <Heart size={32} />
+                <div className="w-24 h-24 bg-maroon/5 dark:bg-maroon/20 rounded-[2.5rem] flex items-center justify-center text-maroon dark:text-red-400 group-hover:bg-maroon group-hover:text-white transition-all duration-500 shadow-sm group-hover:shadow-premium group-hover:-translate-y-3">
+                  <Heart size={36} />
                 </div>
-                <span className="text-[10px] font-black uppercase tracking-widest text-gray-900 dark:text-gray-300">Wishlist</span>
+                <span className="text-[11px] font-black uppercase tracking-[0.2em] text-gray-900 dark:text-gray-300">Wishlist</span>
               </button>
               <button onClick={() => navigateTo('messages')} className="flex flex-col items-center gap-4 group">
-                <div className="w-20 h-20 bg-maroon/5 dark:bg-maroon/20 rounded-[2rem] flex items-center justify-center text-maroon dark:text-red-400 group-hover:bg-maroon group-hover:text-white transition-all duration-500 shadow-sm group-hover:shadow-xl group-hover:-translate-y-2">
-                  <MessageSquare size={32} />
+                <div className="w-24 h-24 bg-maroon/5 dark:bg-maroon/20 rounded-[2.5rem] flex items-center justify-center text-maroon dark:text-red-400 group-hover:bg-maroon group-hover:text-white transition-all duration-500 shadow-sm group-hover:shadow-premium group-hover:-translate-y-3">
+                  <MessageSquare size={36} />
                 </div>
-                <span className="text-[10px] font-black uppercase tracking-widest text-gray-900 dark:text-gray-300">Messages</span>
+                <span className="text-[11px] font-black uppercase tracking-[0.2em] text-gray-900 dark:text-gray-300">Messages</span>
               </button>
-              <button 
+              <motion.button 
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
                 onClick={() => {
                   if (appSettings?.sellerRegistrationEnabled === false) {
                     toast.error('Seller registration is currently disabled by administrator.');
@@ -3929,45 +4201,47 @@ export default function App() {
                   updateUserProfile({ role: 'seller' });
                 }}
                 disabled={appSettings?.sellerRegistrationEnabled === false}
-                className={`col-span-2 mt-4 py-5 rounded-3xl font-black uppercase text-[10px] tracking-widest transition-all shadow-xl flex items-center justify-center gap-3 hover:-translate-y-1 ${appSettings?.sellerRegistrationEnabled === false ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-maroon text-white hover:bg-black'}`}
+                className={`col-span-2 mt-6 py-6 rounded-[2.5rem] font-black uppercase text-xs tracking-[0.4em] transition-all shadow-2xl flex items-center justify-center gap-4 hover:-translate-y-1 ${appSettings?.sellerRegistrationEnabled === false ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-maroon text-white hover:bg-black shadow-maroon/20'}`}
               >
-                <TrendingUp size={20} />
+                <TrendingUp size={24} />
                 Become a Seller
-              </button>
+              </motion.button>
             </>
           ) : (
             <>
               <button onClick={() => navigateTo('seller-dashboard')} className="flex flex-col items-center gap-4 group">
-                <div className="w-20 h-20 bg-maroon/5 dark:bg-maroon/20 rounded-[2rem] flex items-center justify-center text-maroon dark:text-red-400 group-hover:bg-maroon group-hover:text-white transition-all duration-500 shadow-sm group-hover:shadow-xl group-hover:-translate-y-2">
-                  <BarChart3 size={32} />
+                <div className="w-24 h-24 bg-maroon/5 dark:bg-maroon/20 rounded-[2.5rem] flex items-center justify-center text-maroon dark:text-red-400 group-hover:bg-maroon group-hover:text-white transition-all duration-500 shadow-sm group-hover:shadow-premium group-hover:-translate-y-3">
+                  <BarChart3 size={36} />
                 </div>
-                <span className="text-[10px] font-black uppercase tracking-widest text-gray-900 dark:text-gray-300">Dashboard</span>
+                <span className="text-[11px] font-black uppercase tracking-[0.2em] text-gray-900 dark:text-gray-300">Dashboard</span>
               </button>
               <button onClick={() => navigateTo('manage-orders')} className="flex flex-col items-center gap-4 group">
-                <div className="w-20 h-20 bg-maroon/5 dark:bg-maroon/20 rounded-[2rem] flex items-center justify-center text-maroon dark:text-red-400 group-hover:bg-maroon group-hover:text-white transition-all duration-500 shadow-sm group-hover:shadow-xl group-hover:-translate-y-2">
-                  <ClipboardList size={32} />
+                <div className="w-24 h-24 bg-maroon/5 dark:bg-maroon/20 rounded-[2.5rem] flex items-center justify-center text-maroon dark:text-red-400 group-hover:bg-maroon group-hover:text-white transition-all duration-500 shadow-sm group-hover:shadow-premium group-hover:-translate-y-3">
+                  <ClipboardList size={36} />
                 </div>
-                <span className="text-[10px] font-black uppercase tracking-widest text-gray-900 dark:text-gray-300 text-center leading-tight">Manage Orders</span>
+                <span className="text-[11px] font-black uppercase tracking-[0.2em] text-gray-900 dark:text-gray-300 text-center leading-tight">Manage Orders</span>
               </button>
               <button onClick={() => navigateTo('manage-products')} className="flex flex-col items-center gap-4 group">
-                <div className="w-20 h-20 bg-maroon/5 dark:bg-maroon/20 rounded-[2rem] flex items-center justify-center text-maroon dark:text-red-400 group-hover:bg-maroon group-hover:text-white transition-all duration-500 shadow-sm group-hover:shadow-xl group-hover:-translate-y-2">
-                  <Package size={32} />
+                <div className="w-24 h-24 bg-maroon/5 dark:bg-maroon/20 rounded-[2.5rem] flex items-center justify-center text-maroon dark:text-red-400 group-hover:bg-maroon group-hover:text-white transition-all duration-500 shadow-sm group-hover:shadow-premium group-hover:-translate-y-3">
+                  <Package size={36} />
                 </div>
-                <span className="text-[10px] font-black uppercase tracking-widest text-gray-900 dark:text-gray-300">My Products</span>
+                <span className="text-[11px] font-black uppercase tracking-[0.2em] text-gray-900 dark:text-gray-300">My Products</span>
               </button>
               <button onClick={() => navigateTo('messages')} className="flex flex-col items-center gap-4 group">
-                <div className="w-20 h-20 bg-maroon/5 dark:bg-maroon/20 rounded-[2rem] flex items-center justify-center text-maroon dark:text-red-400 group-hover:bg-maroon group-hover:text-white transition-all duration-500 shadow-sm group-hover:shadow-xl group-hover:-translate-y-2">
-                  <MessageSquare size={32} />
+                <div className="w-24 h-24 bg-maroon/5 dark:bg-maroon/20 rounded-[2.5rem] flex items-center justify-center text-maroon dark:text-red-400 group-hover:bg-maroon group-hover:text-white transition-all duration-500 shadow-sm group-hover:shadow-premium group-hover:-translate-y-3">
+                  <MessageSquare size={36} />
                 </div>
-                <span className="text-[10px] font-black uppercase tracking-widest text-gray-900 dark:text-gray-300">Messages</span>
+                <span className="text-[11px] font-black uppercase tracking-[0.2em] text-gray-900 dark:text-gray-300">Messages</span>
               </button>
-              <button 
+              <motion.button 
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
                 onClick={() => updateUserProfile({ role: 'customer' })}
-                className="col-span-2 mt-4 border-2 border-maroon text-maroon py-5 rounded-3xl font-black uppercase text-[10px] tracking-widest hover:bg-maroon hover:text-white transition-all flex items-center justify-center gap-3 hover:-translate-y-1"
+                className="col-span-2 mt-6 border-2 border-maroon text-maroon py-6 rounded-[2.5rem] font-black uppercase text-xs tracking-[0.4em] hover:bg-maroon hover:text-white transition-all flex items-center justify-center gap-4 hover:-translate-y-1 shadow-xl hover:shadow-maroon/20"
               >
-                <User size={20} />
+                <User size={24} />
                 Switch to Customer
-              </button>
+              </motion.button>
             </>
           )}
 
@@ -4012,6 +4286,22 @@ export default function App() {
     const [editGcashNumber, setEditGcashNumber] = useState(userProfile?.gcashNumber || '');
     const [editGcashName, setEditGcashName] = useState(userProfile?.gcashName || '');
     const [isSaving, setIsSaving] = useState(false);
+    const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+    const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) {
+        if (file.size > 1024 * 1024) { // 1MB limit for Base64 storage in Firestore
+          toast.error('Image too large. Please select an image under 1MB.');
+          return;
+        }
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setEditPhoto(reader.result as string);
+        };
+        reader.readAsDataURL(file);
+      }
+    };
 
     const handleSave = async () => {
       setIsLoading(true);
@@ -4034,144 +4324,326 @@ export default function App() {
     };
 
     return (
-      <div className="pb-24 bg-gray-50 dark:bg-[#0a0a0a] min-h-screen">
+      <div className="pb-32 bg-gray-50 dark:bg-[#050505] min-h-screen">
         <Header {...headerProps} />
-        <div className="bg-maroon text-white p-8 pt-16 rounded-b-[4rem] shadow-2xl relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -mr-32 -mt-32 blur-3xl"></div>
-          <div className="flex items-center gap-6 relative z-10">
-            <button onClick={() => navigateTo('profile')} className="w-12 h-12 bg-white/10 backdrop-blur-md rounded-2xl flex items-center justify-center hover:bg-white/20 transition-all">
-              <ChevronLeft size={24} />
-            </button>
-            <h2 className="font-black text-3xl uppercase tracking-tighter">Edit Profile</h2>
+        
+        {/* Premium Header */}
+        <div className="bg-maroon text-white pt-24 pb-32 px-8 rounded-b-[4rem] shadow-2xl relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-96 h-96 bg-white/5 rounded-full -mr-48 -mt-48 blur-3xl"></div>
+          <div className="absolute bottom-0 left-0 w-64 h-64 bg-black/10 rounded-full -ml-32 -mb-32 blur-2xl"></div>
+          
+          <div className="max-w-4xl mx-auto relative z-10 flex items-center justify-between">
+            <div className="flex items-center gap-6">
+              <button 
+                onClick={() => navigateTo('profile')} 
+                className="w-14 h-14 bg-white/10 backdrop-blur-xl border border-white/20 rounded-2xl flex items-center justify-center hover:bg-white/20 transition-all group"
+              >
+                <ChevronLeft size={28} className="group-hover:-translate-x-1 transition-transform" />
+              </button>
+              <div className="space-y-1">
+                <h2 className="font-black text-4xl md:text-5xl uppercase tracking-tighter leading-none">Edit <span className="text-white/60 italic">Profile</span></h2>
+                <p className="text-white/40 text-[10px] font-black uppercase tracking-[0.3em]">Customize your student identity</p>
+              </div>
+            </div>
           </div>
         </div>
         
-        <div className="p-8 flex flex-col items-center -mt-16 relative z-20">
-          <motion.div 
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className="relative group"
-          >
-            <div className="absolute inset-0 bg-maroon/20 rounded-full blur-2xl group-hover:blur-3xl transition-all"></div>
-            <img 
-              src={editPhoto || `https://ui-avatars.com/api/?name=${editName}&background=random`} 
-              className="w-44 h-44 rounded-full object-cover border-4 border-white dark:border-gray-900 shadow-2xl relative z-10 transition-transform group-hover:scale-105" 
-              alt="Profile" 
-            />
-            <button className="absolute bottom-2 right-2 bg-maroon text-white p-4 rounded-2xl shadow-2xl hover:scale-110 transition-transform z-20 border-4 border-white dark:border-gray-900">
-              <Camera size={24} />
-            </button>
-          </motion.div>
-        </div>
-
-        <div className="px-8 space-y-8 max-w-2xl mx-auto">
-          <div className="bg-white dark:bg-gray-900 rounded-[2.5rem] p-10 shadow-xl space-y-8 border border-gray-100 dark:border-gray-800">
-            <div className="space-y-3">
-              <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 ml-2">Display Name</label>
-              <div className="relative">
-                <User className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-300" size={20} />
+        <div className="max-w-2xl mx-auto px-6 -mt-20 relative z-20">
+          {/* Avatar Section */}
+          <div className="flex flex-col items-center mb-12">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="relative group"
+            >
+              <div className="absolute inset-0 bg-maroon/30 rounded-full blur-3xl group-hover:blur-[4rem] transition-all duration-700"></div>
+              <div className="relative w-48 h-48 rounded-full p-2 bg-white dark:bg-gray-900 shadow-2xl">
+                <img 
+                  src={editPhoto || `https://ui-avatars.com/api/?name=${editName}&background=random`} 
+                  className="w-full h-full rounded-full object-cover border-4 border-gray-50 dark:border-gray-800 relative z-10 transition-transform duration-700 group-hover:scale-105" 
+                  alt="Profile" 
+                />
+                <button 
+                  onClick={() => fileInputRef.current?.click()}
+                  className="absolute bottom-2 right-2 bg-maroon text-white p-5 rounded-3xl shadow-2xl hover:scale-110 active:scale-95 transition-all z-20 border-4 border-white dark:border-gray-900 group/btn"
+                >
+                  <Camera size={24} className="group-hover/btn:rotate-12 transition-transform" />
+                </button>
                 <input 
-                  type="text" 
-                  className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-2xl pl-14 pr-6 py-5 focus:ring-2 ring-maroon outline-none font-bold text-gray-900 dark:text-white shadow-inner transition-all" 
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                  placeholder="Your full name"
+                  type="file" 
+                  ref={fileInputRef} 
+                  onChange={handlePhotoChange} 
+                  accept="image/*" 
+                  className="hidden" 
+                />
+              </div>
+            </motion.div>
+            <p className="mt-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Click the camera to upload a new photo</p>
+          </div>
+
+          {/* Form Section */}
+          <div className="bg-white dark:bg-gray-900 rounded-[3rem] p-10 md:p-12 shadow-2xl border border-gray-100 dark:border-gray-800 space-y-10">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="space-y-3">
+                <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 ml-4">Display Name</label>
+                <div className="relative group">
+                  <User className="absolute left-6 top-1/2 -translate-y-1/2 text-gray-300 group-focus-within:text-maroon transition-colors" size={20} />
+                  <input 
+                    type="text" 
+                    className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-[1.5rem] pl-16 pr-6 py-5 focus:ring-2 ring-maroon outline-none font-bold text-gray-900 dark:text-white shadow-inner transition-all" 
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    placeholder="Your full name"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 ml-4">Student ID</label>
+                <div className="relative group">
+                  <ShieldCheck className="absolute left-6 top-1/2 -translate-y-1/2 text-gray-300 group-focus-within:text-maroon transition-colors" size={20} />
+                  <input 
+                    type="text" 
+                    className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-[1.5rem] pl-16 pr-6 py-5 focus:ring-2 ring-maroon outline-none font-bold text-gray-900 dark:text-white shadow-inner transition-all" 
+                    value={editStudentId}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      const clean = val.replace(/[^a-zA-Z0-9]/g, '');
+                      if (clean.length <= 3) {
+                        setEditStudentId(clean);
+                      } else {
+                        setEditStudentId(`${clean.slice(0, 3)}-${clean.slice(3, 10)}`);
+                      }
+                    }}
+                    placeholder="e.g. A24-123"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 ml-4">Bio / About Yourself</label>
+              <div className="relative group">
+                <textarea 
+                  className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-[2rem] px-8 py-6 focus:ring-2 ring-maroon outline-none font-bold text-gray-900 dark:text-white shadow-inner transition-all h-44 resize-none leading-relaxed" 
+                  value={editBio}
+                  onChange={(e) => setEditBio(e.target.value)}
+                  placeholder="Tell the Envergista community about yourself, your skills, or your shop..."
                 />
               </div>
             </div>
 
             <div className="space-y-3">
-              <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 ml-2">Student ID</label>
-              <div className="relative">
-                <ShieldCheck className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-300" size={20} />
+              <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 ml-4">Profile Photo URL (Optional)</label>
+              <div className="relative group">
+                <LinkIcon className="absolute left-6 top-1/2 -translate-y-1/2 text-gray-300 group-focus-within:text-maroon transition-colors" size={20} />
                 <input 
                   type="text" 
-                  className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-2xl pl-14 pr-6 py-5 focus:ring-2 ring-maroon outline-none font-bold text-gray-900 dark:text-white shadow-inner transition-all" 
-                  value={editStudentId}
-                  onChange={(e) => setEditStudentId(e.target.value)}
-                  placeholder="e.g. A24-1234"
+                  className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-[1.5rem] pl-16 pr-6 py-5 focus:ring-2 ring-maroon outline-none font-bold text-gray-900 dark:text-white shadow-inner transition-all text-sm" 
+                  value={editPhoto}
+                  onChange={(e) => setEditPhoto(e.target.value)}
+                  placeholder="Or paste an image URL here"
                 />
               </div>
-            </div>
-
-            <div className="space-y-3">
-              <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 ml-2">Bio / About</label>
-              <textarea 
-                className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-2xl px-6 py-5 focus:ring-2 ring-maroon outline-none font-bold text-gray-900 dark:text-white shadow-inner transition-all h-40 resize-none" 
-                value={editBio}
-                onChange={(e) => setEditBio(e.target.value)}
-                placeholder="Tell us about yourself..."
-              />
             </div>
 
             {userProfile?.role === 'seller' && (
-              <div className="pt-8 border-t border-gray-100 dark:border-gray-800 space-y-8">
+              <div className="pt-10 border-t border-gray-100 dark:border-gray-800 space-y-10">
                 <div className="space-y-2">
-                  <h4 className="text-sm font-black uppercase tracking-widest text-maroon">GCash Payment Details</h4>
-                  <p className="text-[10px] text-gray-400 font-bold uppercase">This information will be shown to customers who choose GCash at checkout.</p>
+                  <h4 className="text-xl font-black uppercase tracking-tighter text-maroon">GCash Payment Details</h4>
+                  <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Used for receiving payments from students</p>
                 </div>
 
-                <div className="space-y-3">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 ml-2">GCash Number</label>
-                  <div className="relative">
-                    <CreditCard className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-300" size={20} />
-                    <input 
-                      type="text" 
-                      className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-2xl pl-14 pr-6 py-5 focus:ring-2 ring-maroon outline-none font-bold text-gray-900 dark:text-white shadow-inner transition-all" 
-                      value={editGcashNumber}
-                      onChange={(e) => setEditGcashNumber(e.target.value)}
-                      placeholder="e.g. 09123456789"
-                    />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  <div className="space-y-3">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 ml-4">GCash Number</label>
+                    <div className="relative group">
+                      <Smartphone className="absolute left-6 top-1/2 -translate-y-1/2 text-gray-300 group-focus-within:text-maroon transition-colors" size={20} />
+                      <input 
+                        type="text" 
+                        className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-[1.5rem] pl-16 pr-6 py-5 focus:ring-2 ring-maroon outline-none font-bold text-gray-900 dark:text-white shadow-inner transition-all" 
+                        value={editGcashNumber}
+                        onChange={(e) => setEditGcashNumber(e.target.value)}
+                        placeholder="09XX XXX XXXX"
+                      />
+                    </div>
                   </div>
-                </div>
 
-                <div className="space-y-3">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 ml-2">GCash Account Name</label>
-                  <div className="relative">
-                    <User className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-300" size={20} />
-                    <input 
-                      type="text" 
-                      className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-2xl pl-14 pr-6 py-5 focus:ring-2 ring-maroon outline-none font-bold text-gray-900 dark:text-white shadow-inner transition-all" 
-                      value={editGcashName}
-                      onChange={(e) => setEditGcashName(e.target.value)}
-                      placeholder="Your full name on GCash"
-                    />
+                  <div className="space-y-3">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 ml-4">GCash Account Name</label>
+                    <div className="relative group">
+                      <CreditCard className="absolute left-6 top-1/2 -translate-y-1/2 text-gray-300 group-focus-within:text-maroon transition-colors" size={20} />
+                      <input 
+                        type="text" 
+                        className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-[1.5rem] pl-16 pr-6 py-5 focus:ring-2 ring-maroon outline-none font-bold text-gray-900 dark:text-white shadow-inner transition-all" 
+                        value={editGcashName}
+                        onChange={(e) => setEditGcashName(e.target.value)}
+                        placeholder="Your full name on GCash"
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
             )}
 
-            <div className="space-y-3">
-              <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 ml-2">Profile Photo URL</label>
-              <div className="relative">
-                <Camera className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-300" size={20} />
-                <input 
-                  type="text" 
-                  className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-2xl pl-14 pr-6 py-5 focus:ring-2 ring-maroon outline-none font-bold text-gray-900 dark:text-white shadow-inner transition-all" 
-                  value={editPhoto}
-                  onChange={(e) => setEditPhoto(e.target.value)}
-                  placeholder="https://..."
-                />
-              </div>
-            </div>
-
-            <button 
+            <motion.button 
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
               onClick={handleSave}
               disabled={isSaving}
-              className="w-full bg-maroon text-white py-6 rounded-3xl font-black uppercase text-xs tracking-[0.2em] hover:bg-black transition-all shadow-2xl flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed hover:-translate-y-1"
+              className="w-full bg-maroon text-white py-6 rounded-[2rem] font-black uppercase text-xs tracking-[0.3em] shadow-2xl shadow-maroon/30 hover:bg-black transition-all flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isSaving ? (
                 <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
               ) : (
                 <>
-                  <ShieldCheck size={20} />
+                  <Save size={20} />
                   Save Changes
                 </>
               )}
-            </button>
+            </motion.button>
           </div>
         </div>
         <BottomNav {...bottomNavProps} />
+      </div>
+    );
+  };
+
+  const VerificationRequestView = () => {
+    const [idPhoto, setIdPhoto] = useState('');
+    const [additionalInfo, setAdditionalInfo] = useState('');
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+    const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) {
+        if (file.size > 1024 * 1024) {
+          toast.error('Image too large. Please select an image under 1MB.');
+          return;
+        }
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setIdPhoto(reader.result as string);
+        };
+        reader.readAsDataURL(file);
+      }
+    };
+
+    const handleSubmit = async () => {
+      if (!idPhoto) {
+        toast.error('Please upload a photo of your Student ID');
+        return;
+      }
+      setIsSubmitting(true);
+      try {
+        await updateUserProfile({
+          verificationStatus: 'pending',
+          verificationData: {
+            idPhoto,
+            additionalInfo,
+            submittedAt: new Date().toISOString()
+          }
+        });
+        toast.success('Verification request submitted successfully!');
+        navigateTo('profile');
+      } catch (error) {
+        toast.error('Failed to submit request');
+      } finally {
+        setIsSubmitting(false);
+      }
+    };
+
+    return (
+      <div className="pb-32 bg-gray-50 dark:bg-[#050505] min-h-screen">
+        <Header {...headerProps} />
+        <div className="bg-maroon text-white pt-24 pb-32 px-8 rounded-b-[5rem] shadow-2xl relative overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-br from-maroon via-red-950 to-black opacity-40"></div>
+          <div className="max-w-4xl mx-auto relative z-10 flex items-center gap-6">
+            <motion.button 
+              whileHover={{ scale: 1.1, x: -5 }}
+              whileTap={{ scale: 0.9 }}
+              onClick={() => navigateTo('profile')} 
+              className="w-14 h-14 bg-white/10 backdrop-blur-xl border border-white/20 rounded-2xl flex items-center justify-center hover:bg-white/20 transition-all"
+            >
+              <ChevronLeft size={28} />
+            </motion.button>
+            <div className="space-y-1">
+              <h2 className="font-display font-black text-4xl uppercase tracking-tighter leading-none">Account <span className="text-white/60 italic">Verification</span></h2>
+              <p className="text-white/40 text-[10px] font-black uppercase tracking-[0.3em]">Verify your student identity</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="max-w-2xl mx-auto px-6 -mt-20 relative z-20">
+          <div className="bg-white dark:bg-gray-900 rounded-[4rem] p-12 shadow-premium border border-gray-100 dark:border-white/5 space-y-12">
+            <div className="space-y-8">
+              <div className="space-y-3">
+                <h3 className="text-2xl font-display font-black uppercase tracking-tighter text-gray-900 dark:text-white">Upload Student ID</h3>
+                <p className="text-xs font-bold text-gray-400 leading-relaxed max-w-md">Please provide a clear photo of your Enverga Student ID. This helps us maintain a safe community for everyone.</p>
+              </div>
+
+              <div 
+                onClick={() => fileInputRef.current?.click()}
+                className={`relative aspect-video rounded-[3rem] border-4 border-dashed transition-all duration-500 cursor-pointer flex flex-col items-center justify-center gap-6 overflow-hidden group ${idPhoto ? 'border-maroon shadow-premium' : 'border-gray-200 dark:border-gray-800 hover:border-maroon/50 bg-gray-50 dark:bg-white/5 shadow-inner'}`}
+              >
+                {idPhoto ? (
+                  <>
+                    <img src={idPhoto} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" alt="ID Preview" />
+                    <div className="absolute inset-0 bg-maroon/40 backdrop-blur-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-500">
+                      <div className="bg-white text-maroon px-8 py-4 rounded-2xl font-black uppercase text-xs tracking-widest shadow-2xl">Change Photo</div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="w-24 h-24 bg-maroon/5 rounded-[2rem] flex items-center justify-center text-maroon group-hover:scale-110 group-hover:rotate-12 transition-all duration-500">
+                      <Camera size={40} />
+                    </div>
+                    <div className="text-center space-y-1">
+                      <p className="text-[10px] font-black uppercase tracking-[0.3em] text-gray-400">Click to upload photo</p>
+                      <p className="text-[8px] font-bold text-gray-300 uppercase tracking-widest">Supports JPG, PNG (Max 1MB)</p>
+                    </div>
+                  </>
+                )}
+                <input type="file" ref={fileInputRef} onChange={handlePhotoChange} accept="image/*" className="hidden" />
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <label className="text-[10px] font-black uppercase tracking-[0.3em] text-gray-400 ml-6">Additional Information (Optional)</label>
+              <textarea 
+                className="w-full bg-gray-50 dark:bg-white/5 border-none rounded-[2.5rem] px-10 py-8 focus:ring-2 ring-maroon outline-none font-bold text-gray-900 dark:text-white shadow-inner transition-all h-40 resize-none leading-relaxed" 
+                value={additionalInfo}
+                onChange={(e) => setAdditionalInfo(e.target.value)}
+                placeholder="Any other details you'd like to provide..."
+              />
+            </div>
+
+            <div className="bg-blue-500/5 dark:bg-blue-500/10 p-8 rounded-[2.5rem] border border-blue-500/10 flex gap-6 items-center">
+              <div className="w-12 h-12 bg-blue-500/10 rounded-2xl flex items-center justify-center text-blue-500 shrink-0">
+                <Info size={24} />
+              </div>
+              <p className="text-[10px] font-bold text-blue-700 dark:text-blue-300 leading-relaxed uppercase tracking-widest">Your information is kept private and will only be used by admins to verify your account status.</p>
+            </div>
+
+            <motion.button 
+              whileHover={{ scale: 1.02, y: -2 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={handleSubmit}
+              disabled={isSubmitting}
+              className="w-full bg-maroon text-white py-7 rounded-[2.5rem] font-black uppercase text-xs tracking-[0.4em] shadow-2xl shadow-maroon/30 hover:bg-black transition-all flex items-center justify-center gap-4 disabled:opacity-50"
+            >
+              {isSubmitting ? (
+                <div className="w-6 h-6 border-3 border-white/30 border-t-white rounded-full animate-spin"></div>
+              ) : (
+                <>
+                  <Send size={24} />
+                  Submit Request
+                </>
+              )}
+            </motion.button>
+          </div>
+        </div>
       </div>
     );
   };
@@ -4229,63 +4701,35 @@ export default function App() {
           </div>
 
           {/* Stats Grid - Hardware Recipe Influence */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6">
-            <div className="bg-white dark:bg-gray-900 p-8 rounded-[2.5rem] shadow-sm border border-gray-100 dark:border-gray-800 flex items-center gap-6 group hover:shadow-xl transition-all duration-300">
-              <div className="bg-green-500 w-16 h-16 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-green-500/20 group-hover:scale-110 transition-transform">
-                <DollarSign size={32} />
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
+            <div className="bg-white dark:bg-gray-900 p-10 rounded-[3rem] shadow-premium border border-gray-100 dark:border-white/5 flex items-center gap-8 group hover:shadow-2xl transition-all duration-500 hover:-translate-y-2">
+              <div className="bg-green-500 w-20 h-20 rounded-3xl flex items-center justify-center text-white shadow-lg shadow-green-500/20 group-hover:scale-110 group-hover:rotate-6 transition-all duration-500">
+                <DollarSign size={40} />
               </div>
               <div>
-                <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-1">Total Revenue</p>
-                <p className="text-sm font-black text-gray-400 uppercase mb-1">PHP</p>
-                <p className="text-3xl font-black text-gray-900 dark:text-white tracking-tighter">{totalSales.toLocaleString()}</p>
+                <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.3em] mb-2">Total Revenue</p>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-sm font-black text-gray-400 uppercase">PHP</span>
+                  <p className="text-4xl font-display font-black text-gray-900 dark:text-white tracking-tighter">{totalSales.toLocaleString()}</p>
+                </div>
               </div>
             </div>
-            <div className="bg-white dark:bg-gray-900 p-8 rounded-[2.5rem] shadow-sm border border-gray-100 dark:border-gray-800 flex items-center gap-6 group hover:shadow-xl transition-all duration-300">
-              <div className="bg-green-600 w-16 h-16 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-green-600/20 group-hover:scale-110 transition-transform">
-                <ShieldCheck size={32} />
+            <div className="bg-white dark:bg-gray-900 p-10 rounded-[3rem] shadow-premium border border-gray-100 dark:border-white/5 flex items-center gap-8 group hover:shadow-2xl transition-all duration-500 hover:-translate-y-2">
+              <div className="bg-blue-500 w-20 h-20 rounded-3xl flex items-center justify-center text-white shadow-lg shadow-blue-500/20 group-hover:scale-110 group-hover:rotate-6 transition-all duration-500">
+                <Package size={40} />
               </div>
               <div>
-                <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-1">Tax Paid</p>
-                <p className="text-sm font-black text-gray-400 uppercase mb-1">PHP</p>
-                <p className="text-3xl font-black text-green-600 tracking-tighter">{totalTaxPaid.toLocaleString()}</p>
+                <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.3em] mb-2">Total Orders</p>
+                <p className="text-4xl font-display font-black text-gray-900 dark:text-white tracking-tighter">{totalOrders}</p>
               </div>
             </div>
-            <div className="bg-white dark:bg-gray-900 p-8 rounded-[2.5rem] shadow-sm border border-gray-100 dark:border-gray-800 flex items-center gap-6 group hover:shadow-xl transition-all duration-300">
-              <div className="bg-maroon w-16 h-16 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-maroon/20 group-hover:scale-110 transition-transform">
-                <DollarSign size={32} />
+            <div className="bg-white dark:bg-gray-900 p-10 rounded-[3rem] shadow-premium border border-gray-100 dark:border-white/5 flex items-center gap-8 group hover:shadow-2xl transition-all duration-500 hover:-translate-y-2">
+              <div className="bg-orange-500 w-20 h-20 rounded-3xl flex items-center justify-center text-white shadow-lg shadow-orange-500/20 group-hover:scale-110 group-hover:rotate-6 transition-all duration-500">
+                <TrendingUp size={40} />
               </div>
               <div>
-                <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-1">Tax Owed</p>
-                <p className="text-sm font-black text-gray-400 uppercase mb-1">PHP</p>
-                <p className="text-3xl font-black text-maroon tracking-tighter">{totalTaxOwed.toLocaleString()}</p>
-              </div>
-            </div>
-            <div className="bg-white dark:bg-gray-900 p-8 rounded-[2.5rem] shadow-sm border border-gray-100 dark:border-gray-800 flex items-center gap-6 group hover:shadow-xl transition-all duration-300">
-              <div className="bg-gray-500 w-16 h-16 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-gray-500/20 group-hover:scale-110 transition-transform">
-                <Clock size={32} />
-              </div>
-              <div>
-                <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-1">Tax Pending</p>
-                <p className="text-sm font-black text-gray-400 uppercase mb-1">PHP</p>
-                <p className="text-3xl font-black text-gray-500 tracking-tighter">{pendingTax.toLocaleString()}</p>
-              </div>
-            </div>
-            <div className="bg-white dark:bg-gray-900 p-8 rounded-[2.5rem] shadow-sm border border-gray-100 dark:border-gray-800 flex items-center gap-6 group hover:shadow-xl transition-all duration-300">
-              <div className="bg-blue-500 w-16 h-16 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-blue-500/20 group-hover:scale-110 transition-transform">
-                <Package size={32} />
-              </div>
-              <div>
-                <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-1">Total Orders</p>
-                <p className="text-3xl font-black text-gray-900 dark:text-white tracking-tighter">{totalOrders}</p>
-              </div>
-            </div>
-            <div className="bg-white dark:bg-gray-900 p-8 rounded-[2.5rem] shadow-sm border border-gray-100 dark:border-gray-800 flex items-center gap-6 group hover:shadow-xl transition-all duration-300">
-              <div className="bg-orange-500 w-16 h-16 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-orange-500/20 group-hover:scale-110 transition-transform">
-                <TrendingUp size={32} />
-              </div>
-              <div>
-                <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-1">Pending Orders</p>
-                <p className="text-3xl font-black text-gray-900 dark:text-white tracking-tighter">{pendingOrders}</p>
+                <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.3em] mb-2">Pending Orders</p>
+                <p className="text-4xl font-display font-black text-gray-900 dark:text-white tracking-tighter">{pendingOrders}</p>
               </div>
             </div>
           </div>
@@ -4497,6 +4941,30 @@ export default function App() {
   const ManageProductsView = () => {
     const myProducts = allProducts.filter(p => p.sellerId === currentUser?.uid);
 
+    if (userProfile?.role === 'seller' && !userProfile?.isVerified) {
+      return (
+        <div className="pb-24 bg-[#f8f9fa] dark:bg-[#0a0a0a] min-h-screen">
+          <Header {...headerProps} />
+          <div className="p-6 max-w-2xl mx-auto flex flex-col items-center justify-center py-32 text-center space-y-6">
+            <div className="w-24 h-24 bg-yellow-100 dark:bg-yellow-900/20 rounded-full flex items-center justify-center text-yellow-600">
+              <ShieldCheck size={48} />
+            </div>
+            <div className="space-y-2">
+              <h2 className="text-2xl font-black uppercase tracking-tighter dark:text-white">Verification Required</h2>
+              <p className="text-gray-500 text-sm">You must verify your account before you can upload and manage products. This helps us ensure the safety of our student community.</p>
+            </div>
+            <button 
+              onClick={() => navigateTo('profile')}
+              className="bg-maroon text-white px-8 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg"
+            >
+              Go to Profile to Verify
+            </button>
+          </div>
+          <BottomNav {...bottomNavProps} />
+        </div>
+      );
+    }
+
     return (
       <div className="pb-24 bg-[#f8f9fa] dark:bg-[#0a0a0a] min-h-screen">
         <Header {...headerProps} />
@@ -4631,6 +5099,7 @@ export default function App() {
               <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest ${
                 selectedOrder.status === 'DELIVERED' ? 'bg-green-100 text-green-600' : 
                 selectedOrder.status === 'SHIPPED' ? 'bg-blue-100 text-blue-600' : 
+                selectedOrder.status === 'PREPARING' ? 'bg-orange-100 text-orange-600' :
                 'bg-yellow-100 text-yellow-600'
               }`}>
                 {selectedOrder.status}
@@ -4643,7 +5112,20 @@ export default function App() {
                 <div className="space-y-2">
                   <div className="flex items-center gap-3">
                     <User size={16} className="text-gray-400" />
-                    <p className="text-sm font-bold text-gray-900 dark:text-white">{selectedOrder.customerName}</p>
+                    <div className="flex flex-col gap-1">
+                      <p className="text-sm font-bold text-gray-900 dark:text-white">{selectedOrder.customerName}</p>
+                      {selectedOrder.isCustomerVerified ? (
+                        <div className="flex items-center gap-1.5 bg-blue-500/10 text-blue-600 px-3 py-1 rounded-full border border-blue-200 self-start">
+                          <ShieldCheck size={12} />
+                          <span className="text-[9px] font-black uppercase tracking-widest">Verified Envergista</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5 bg-yellow-500/10 text-yellow-700 px-3 py-1 rounded-full border border-yellow-200 self-start">
+                          <AlertCircle size={12} />
+                          <span className="text-[9px] font-black uppercase tracking-widest">Unverified User</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
                   {selectedOrder.customerStudentId && (
                     <div className="flex items-center gap-3">
@@ -4712,9 +5194,10 @@ export default function App() {
     );
   };
 
-  const AdminDashboardView = () => {
-    const [activeTab, setActiveTab] = useState<'users' | 'orders' | 'reports' | 'tax' | 'payments' | 'settings'>('users');
-    const [roleFilter, setRoleFilter] = useState<'all' | 'customer' | 'seller' | 'admin'>('all');
+    const AdminDashboardView = () => {
+      const [activeTab, setActiveTab] = useState<'users' | 'orders' | 'reports' | 'tax' | 'payments' | 'verification' | 'settings'>('users');
+      const [roleFilter, setRoleFilter] = useState<'all' | 'customer' | 'seller' | 'admin'>('all');
+    const [orderStatusFilter, setOrderStatusFilter] = useState<Order['status'] | 'ALL'>('ALL');
     const [taxRateInput, setTaxRateInput] = useState((appSettings?.listingTaxRate || 0) * 100);
     const [selectedReceipt, setSelectedReceipt] = useState<string | null>(null);
 
@@ -4768,6 +5251,27 @@ export default function App() {
       } catch (error) {
         toast.error('Failed to update tax rate');
       }
+    };
+
+    const handleVerificationAction = async (userId: string, status: 'verified' | 'rejected') => {
+      setConfirmAction({
+        title: status === 'verified' ? 'Approve Verification' : 'Reject Verification',
+        message: `Are you sure you want to ${status} this user's identity?`,
+        onConfirm: async () => {
+          try {
+            await updateDoc(doc(db, 'users', userId), {
+              isVerified: status === 'verified',
+              verificationStatus: status,
+              updatedAt: new Date().toISOString()
+            });
+            toast.success(`User ${status} successfully`);
+          } catch (error) {
+            handleFirestoreError(error, OperationType.UPDATE, `users/${userId}`);
+          }
+        },
+        confirmText: status === 'verified' ? 'Yes, Approve' : 'Yes, Reject',
+        type: status === 'verified' ? 'primary' : 'danger'
+      });
     };
 
     if (userProfile?.role !== 'admin' || !ADMIN_EMAILS.includes(currentUser?.email)) {
@@ -4873,36 +5377,36 @@ export default function App() {
                 </motion.h2>
               </div>
 
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 w-full md:w-auto">
-                <div className="bg-white/10 backdrop-blur-xl p-6 rounded-[2rem] border border-white/10 shadow-2xl">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-2">Total Revenue</p>
-                  <p className="text-2xl font-black text-white tracking-tighter">₱{stats.totalRevenue.toLocaleString()}</p>
-                  <div className="mt-2 flex items-center gap-1 text-[10px] font-bold text-green-400">
-                    <TrendingUp size={12} />
-                    <span>+12.5%</span>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 w-full md:w-auto">
+                <div className="bg-white/10 backdrop-blur-2xl p-8 rounded-[2.5rem] border border-white/10 shadow-2xl group hover:bg-white/20 transition-all duration-500">
+                  <p className="text-[10px] font-black uppercase tracking-[0.3em] text-white/40 mb-3">Total Revenue</p>
+                  <p className="text-3xl font-display font-black text-white tracking-tighter">₱{stats.totalRevenue.toLocaleString()}</p>
+                  <div className="mt-3 flex items-center gap-2 text-[10px] font-black text-green-400 uppercase tracking-widest">
+                    <div className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse"></div>
+                    <span>Growth Active</span>
                   </div>
                 </div>
-                <div className="bg-white/10 backdrop-blur-xl p-6 rounded-[2rem] border border-white/10 shadow-2xl">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-2">Tax Collected</p>
-                  <p className="text-2xl font-black text-white tracking-tighter">₱{stats.totalTaxCollected.toLocaleString()}</p>
-                  <div className="mt-2 flex items-center gap-1 text-[10px] font-bold text-blue-400">
+                <div className="bg-white/10 backdrop-blur-2xl p-8 rounded-[2.5rem] border border-white/10 shadow-2xl group hover:bg-white/20 transition-all duration-500">
+                  <p className="text-[10px] font-black uppercase tracking-[0.3em] text-white/40 mb-3">Tax Collected</p>
+                  <p className="text-3xl font-display font-black text-white tracking-tighter">₱{stats.totalTaxCollected.toLocaleString()}</p>
+                  <div className="mt-3 flex items-center gap-2 text-[10px] font-black text-blue-400 uppercase tracking-widest">
                     <ShieldCheck size={12} />
                     <span>Verified</span>
                   </div>
                 </div>
-                <div className="bg-white/10 backdrop-blur-xl p-6 rounded-[2rem] border border-white/10 shadow-2xl">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-2">Total Orders</p>
-                  <p className="text-2xl font-black text-white tracking-tighter">{stats.totalOrders}</p>
-                  <div className="mt-2 flex items-center gap-1 text-[10px] font-bold text-blue-400">
+                <div className="hidden lg:block bg-white/10 backdrop-blur-2xl p-8 rounded-[2.5rem] border border-white/10 shadow-2xl group hover:bg-white/20 transition-all duration-500">
+                  <p className="text-[10px] font-black uppercase tracking-[0.3em] text-white/40 mb-3">Total Orders</p>
+                  <p className="text-3xl font-display font-black text-white tracking-tighter">{stats.totalOrders}</p>
+                  <div className="mt-3 flex items-center gap-2 text-[10px] font-black text-orange-400 uppercase tracking-widest">
                     <Package size={12} />
-                    <span>Active System</span>
+                    <span>Processing</span>
                   </div>
                 </div>
-                <div className="hidden md:block bg-white/10 backdrop-blur-xl p-6 rounded-[2rem] border border-white/10 shadow-2xl">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-2">Active Users</p>
-                  <p className="text-2xl font-black text-white tracking-tighter">{stats.totalUsers}</p>
-                  <div className="mt-2 flex items-center gap-1 text-[10px] font-bold text-orange-400">
-                    <User size={12} />
+                <div className="hidden lg:block bg-white/10 backdrop-blur-2xl p-8 rounded-[2.5rem] border border-white/10 shadow-2xl group hover:bg-white/20 transition-all duration-500">
+                  <p className="text-[10px] font-black uppercase tracking-[0.3em] text-white/40 mb-3">Active Users</p>
+                  <p className="text-3xl font-display font-black text-white tracking-tighter">{stats.totalUsers}</p>
+                  <div className="mt-3 flex items-center gap-2 text-[10px] font-black text-green-400 uppercase tracking-widest">
+                    <div className="w-1.5 h-1.5 bg-green-400 rounded-full"></div>
                     <span>Verified</span>
                   </div>
                 </div>
@@ -4919,6 +5423,7 @@ export default function App() {
               {[
                 { id: 'users', label: 'Users', icon: <User size={16} /> },
                 { id: 'orders', label: 'Orders', icon: <ClipboardList size={16} /> },
+                { id: 'verification', label: 'Verification', icon: <ShieldCheck size={16} /> },
                 { id: 'payments', label: 'Payments', icon: <CreditCard size={16} /> },
                 { id: 'reports', label: 'Reports', icon: <BarChart3 size={16} /> },
                 { id: 'tax', label: 'Listing Tax', icon: <DollarSign size={16} /> },
@@ -4942,6 +5447,77 @@ export default function App() {
 
             <div className="p-8 md:p-12">
               <AnimatePresence mode="wait">
+                {activeTab === 'verification' && (
+                  <motion.div 
+                    key="verification"
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -20 }}
+                    className="space-y-10"
+                  >
+                    <div className="space-y-1">
+                      <h3 className="text-2xl font-black uppercase tracking-tighter dark:text-white">Verification Requests</h3>
+                      <p className="text-xs text-gray-400 font-medium">Review student ID submissions and verify identities</p>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-6">
+                      {allUsers.filter(u => u.verificationStatus === 'pending').length === 0 ? (
+                        <div className="text-center py-32 bg-gray-50 dark:bg-white/5 rounded-[3rem] border-2 border-dashed border-gray-100 dark:border-white/5">
+                          <ShieldCheck size={48} className="mx-auto text-gray-300 mb-4" />
+                          <p className="text-xs font-black uppercase tracking-widest text-gray-400">No pending requests</p>
+                        </div>
+                      ) : (
+                        allUsers.filter(u => u.verificationStatus === 'pending').map((user: any) => (
+                          <div key={user.id} className="bg-white dark:bg-[#0d0d0d] rounded-[2.5rem] border border-gray-100 dark:border-white/5 overflow-hidden shadow-sm hover:shadow-xl transition-all duration-500">
+                            <div className="p-8 flex flex-col md:flex-row gap-8">
+                              <div className="w-full md:w-64 aspect-[3/4] rounded-2xl overflow-hidden bg-gray-100 dark:bg-gray-800 shrink-0 shadow-lg">
+                                <img src={user.verificationData?.idPhoto} className="w-full h-full object-cover" alt="Student ID" />
+                              </div>
+                              <div className="flex-1 space-y-6">
+                                <div className="flex justify-between items-start">
+                                  <div>
+                                    <h4 className="font-black text-2xl tracking-tight dark:text-white leading-none mb-2">{user.displayName}</h4>
+                                    <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">{user.email}</p>
+                                    <div className="flex gap-2 mt-3">
+                                      <span className="text-[8px] font-black uppercase tracking-widest px-3 py-1 rounded-lg bg-maroon/10 text-maroon">
+                                        Role: {user.role}
+                                      </span>
+                                      <span className="text-[8px] font-black uppercase tracking-widest px-3 py-1 rounded-lg bg-blue-500/10 text-blue-500">
+                                        Submitted: {user.verificationData?.submittedAt ? new Date(user.verificationData.submittedAt).toLocaleDateString() : 'N/A'}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="space-y-2">
+                                  <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Additional Info</p>
+                                  <p className="text-sm text-gray-600 dark:text-gray-300 leading-relaxed bg-gray-50 dark:bg-white/5 p-4 rounded-2xl italic">
+                                    {user.verificationData?.additionalInfo || "No additional information provided."}
+                                  </p>
+                                </div>
+
+                                <div className="flex gap-4 pt-4">
+                                  <button 
+                                    onClick={() => handleVerificationAction(user.id, 'verified')}
+                                    className="flex-1 bg-green-500 text-white py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-green-500/20 hover:scale-105 transition-all"
+                                  >
+                                    Approve & Verify
+                                  </button>
+                                  <button 
+                                    onClick={() => handleVerificationAction(user.id, 'rejected')}
+                                    className="flex-1 bg-red-500/10 text-red-500 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-red-500 hover:text-white transition-all"
+                                  >
+                                    Reject Request
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </motion.div>
+                )}
                 {activeTab === 'users' && (
                   <motion.div 
                     key="users"
@@ -4987,6 +5563,17 @@ export default function App() {
                                 }`}>
                                   {user.role}
                                 </span>
+                                {user.role !== 'admin' && (
+                                  user.isVerified ? (
+                                    <span className="text-[8px] font-black uppercase tracking-widest px-3 py-1 rounded-lg bg-green-500/10 text-green-500 flex items-center gap-1">
+                                      <ShieldCheck size={10} /> Verified
+                                    </span>
+                                  ) : (
+                                    <span className="text-[8px] font-black uppercase tracking-widest px-3 py-1 rounded-lg bg-orange-500/10 text-orange-500 flex items-center gap-1">
+                                      <ShieldAlert size={10} /> Unverified
+                                    </span>
+                                  )
+                                )}
                                 {user.isBlocked && (
                                   <span className="text-[8px] font-black uppercase tracking-widest px-3 py-1 rounded-lg bg-red-500/10 text-red-500">
                                     Account Restricted
@@ -5028,6 +5615,17 @@ export default function App() {
                         <h3 className="text-2xl font-black uppercase tracking-tighter dark:text-white">Order History</h3>
                         <p className="text-xs text-gray-400 font-medium">Global transaction log across all sellers and customers</p>
                       </div>
+                      <div className="flex flex-wrap gap-2 p-1 bg-gray-100 dark:bg-white/5 rounded-2xl">
+                        {(['ALL', 'PREPARING', 'SHIPPED', 'DELIVERED', 'REJECTED', 'CANCELLED'] as const).map(status => (
+                          <button
+                            key={status}
+                            onClick={() => setOrderStatusFilter(status)}
+                            className={`px-4 py-2 rounded-xl text-[8px] font-black uppercase tracking-widest transition-all ${orderStatusFilter === status ? 'bg-white dark:bg-gray-800 text-maroon shadow-sm' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-200'}`}
+                          >
+                            {status === 'CANCELLED' ? 'CANCEL' : status}
+                          </button>
+                        ))}
+                      </div>
                       <div className="flex items-center gap-2 px-4 py-2 bg-green-500/10 rounded-xl border border-green-500/20">
                         <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
                         <span className="text-[9px] font-black uppercase tracking-widest text-green-500">Live Monitoring Active</span>
@@ -5035,13 +5633,13 @@ export default function App() {
                     </div>
 
                     <div className="grid grid-cols-1 gap-4">
-                      {allOrders.length === 0 ? (
+                      {allOrders.filter(o => orderStatusFilter === 'ALL' || o.status === orderStatusFilter).length === 0 ? (
                         <div className="text-center py-32 bg-gray-50 dark:bg-white/5 rounded-[3rem] border-2 border-dashed border-gray-100 dark:border-white/5">
                           <Package size={48} className="mx-auto text-gray-300 mb-4" />
                           <p className="text-xs font-black uppercase tracking-widest text-gray-400">No transactions recorded</p>
                         </div>
                       ) : (
-                        allOrders.map((order: Order) => (
+                        allOrders.filter(o => orderStatusFilter === 'ALL' || o.status === orderStatusFilter).map((order: Order) => (
                           <div key={order.id} className="group p-8 bg-white dark:bg-[#0d0d0d] rounded-[2.5rem] border border-gray-100 dark:border-white/5 hover:border-maroon/20 transition-all duration-500">
                             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
                               <div className="flex items-center gap-6">
@@ -5054,7 +5652,8 @@ export default function App() {
                                     <span className={`text-[8px] font-black uppercase tracking-widest px-3 py-1 rounded-lg ${
                                       order.status === 'DELIVERED' ? 'bg-green-500/10 text-green-500' : 
                                       order.status === 'SHIPPED' ? 'bg-blue-500/10 text-blue-500' : 
-                                      'bg-orange-500/10 text-orange-500'
+                                      order.status === 'PREPARING' ? 'bg-orange-500/10 text-orange-500' :
+                                      'bg-yellow-500/10 text-yellow-500'
                                     }`}>
                                       {order.status}
                                     </span>
@@ -5066,7 +5665,12 @@ export default function App() {
                               <div className="flex items-center gap-8 w-full md:w-auto border-t md:border-t-0 pt-6 md:pt-0 border-gray-100 dark:border-white/5">
                                 <div className="flex-1 md:flex-none">
                                   <p className="text-[8px] font-black text-gray-400 uppercase tracking-widest mb-1">Customer</p>
-                                  <p className="text-xs font-bold dark:text-gray-200">{order.customerName}</p>
+                                  <div className="flex items-center gap-2">
+                                    <p className="text-xs font-bold dark:text-gray-200">{order.customerName}</p>
+                                    {order.isCustomerVerified && (
+                                      <ShieldCheck size={10} className="text-blue-500" />
+                                    )}
+                                  </div>
                                 </div>
                                 <button 
                                   onClick={() => {
@@ -5607,6 +6211,7 @@ export default function App() {
 
   return (
     <ErrorBoundary>
+      <div className="noise-overlay" />
       <AnimatePresence>
         {isLoading && <LoadingOverlay />}
       </AnimatePresence>
@@ -5655,6 +6260,7 @@ export default function App() {
                 {currentView === 'wishlist' && <WishlistView />}
                 {currentView === 'notifications' && <NotificationsView />}
                 {currentView === 'admin-dashboard' && <AdminDashboardView />}
+                {currentView === 'verification-request' && <VerificationRequestView />}
                 {currentView === 'order-details' && <OrderDetailsView />}
                 {['about', 'success-stories', 'help', 'safety', 'privacy'].includes(currentView) && <InfoView view={currentView} contactAdmin={contactAdmin} navigateTo={navigateTo} />}
           </motion.div>

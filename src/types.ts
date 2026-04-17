@@ -1,5 +1,5 @@
 
-export type View = 'landing' | 'login' | 'signup' | 'shop' | 'cart' | 'checkout' | 'orders' | 'profile' | 'edit-profile' | 'seller-dashboard' | 'manage-products' | 'manage-orders' | 'product-details' | 'order-details' | 'messages' | 'chat' | 'wishlist' | 'notifications' | 'admin-dashboard' | 'about' | 'success-stories' | 'help' | 'safety' | 'privacy';
+export type View = 'landing' | 'login' | 'signup' | 'shop' | 'cart' | 'checkout' | 'orders' | 'profile' | 'edit-profile' | 'seller-dashboard' | 'manage-products' | 'manage-orders' | 'product-details' | 'order-details' | 'messages' | 'chat' | 'wishlist' | 'notifications' | 'admin-dashboard' | 'verification-request' | 'about' | 'success-stories' | 'help' | 'safety' | 'privacy';
 
 export interface Notification {
   id: string;
@@ -63,7 +63,7 @@ export interface Order {
   customerStudentId?: string;
   sellerId: string;
   items: CartItem[];
-  status: 'PREPARING' | 'SHIPPED' | 'DELIVERED' | 'REJECTED' | 'CANCELLED';
+  status: 'PENDING' | 'PREPARING' | 'SHIPPED' | 'DELIVERED' | 'REJECTED' | 'CANCELLED';
   date: string;
   total: number;
   taxAmount?: number;
@@ -71,6 +71,7 @@ export interface Order {
   paymentMethod: 'GCASH' | 'COD';
   paymentScreenshot?: string;
   paymentStatus?: 'PENDING' | 'VERIFIED' | 'FAILED';
+  isCustomerVerified?: boolean;
   updatedAt?: string;
 }
 
@@ -97,6 +98,13 @@ export interface UserProfile {
   studentId?: string;
   gcashNumber?: string;
   gcashName?: string;
+  isVerified?: boolean;
+  verificationStatus?: 'none' | 'pending' | 'verified' | 'rejected';
+  verificationData?: {
+    idPhoto: string;
+    additionalInfo: string;
+    submittedAt: string;
+  };
   isBlocked?: boolean;
   createdAt: string;
 }

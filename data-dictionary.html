@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Data Dictionary - Tindahang Envergista</title>
+    <style>
+        :root {
+            --maroon: #800000;
+            --gray: #f4f4f4;
+            --text: #333;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: var(--text);
+            max-width: 900px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #fff;
+        }
+        .header {
+            text-align: center;
+            border-bottom: 3px solid var(--maroon);
+            padding-bottom: 20px;
+            margin-bottom: 40px;
+        }
+        h1 { color: var(--maroon); margin: 0; text-transform: uppercase; letter-spacing: 2px; }
+        h2 { color: var(--maroon); border-left: 5px solid var(--maroon); padding-left: 15px; margin-top: 40px; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        th, td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: var(--maroon);
+            color: white;
+            text-transform: uppercase;
+            font-size: 0.85rem;
+            letter-spacing: 1px;
+        }
+        tr:nth-child(even) { background-color: var(--gray); }
+        .footer {
+            margin-top: 60px;
+            text-align: center;
+            font-size: 0.8rem;
+            color: #777;
+            border-top: 1px solid #ddd;
+            padding-top: 20px;
+        }
+        @media print {
+            body { margin: 0; padding: 0; }
+            .no-print { display: none; }
+        }
+        .btn {
+            display: inline-block;
+            background: var(--maroon);
+            color: white;
+            padding: 10px 20px;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Tindahang Envergista</h1>
+        <p>Marketplace Database Documentation & Data Dictionary</p>
+    </div>
+
+    <button class="btn no-print" onclick="window.print()">Print to PDF</button>
+
+    <div class="section">
+        <h2>1. User Entity (/users)</h2>
+        <p>Stores authentication details, roles, and MSEUF verification status.</p>
+        <table>
+            <thead>
+                <tr>
+                    <th>Field</th>
+                    <th>Type</th>
+                    <th>Required</th>
+                    <th>Description</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td>uid</td><td>String (PK)</td><td>Yes</td><td>Unique identifier from Firebase Auth.</td></tr>
+                <tr><td>email</td><td>String</td><td>Yes</td><td>MSEUF student/faculty email address.</td></tr>
+                <tr><td>displayName</td><td>String</td><td>Yes</td><td>Full name of the user.</td></tr>
+                <tr><td>role</td><td>Enum</td><td>Yes</td><td>admin | seller | customer</td></tr>
+                <tr><td>verificationStatus</td><td>Enum</td><td>Yes</td><td>unverified | pending | verified | rejected</td></tr>
+                <tr><td>isBlocked</td><td>Boolean</td><td>No</td><td>Administrative restriction toggle.</td></tr>
+                <tr><td>gcashNumber</td><td>String</td><td>No</td><td>Payment account number.</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="section">
+        <h2>2. Product Entity (/products)</h2>
+        <p>Inventory items created by verified student sellers.</p>
+        <table>
+            <thead>
+                <tr>
+                    <th>Field</th>
+                    <th>Type</th>
+                    <th>Required</th>
+                    <th>Description</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td>id</td><td>String (PK)</td><td>Yes</td><td>Unique product ID (PROD-XXXX).</td></tr>
+                <tr><td>sellerId</td><td>String (FK)</td><td>Yes</td><td>UID of the student owner.</td></tr>
+                <tr><td>name</td><td>String</td><td>Yes</td><td>The product title.</td></tr>
+                <tr><td>price</td><td>Number</td><td>Yes</td><td>Unit price in PHP.</td></tr>
+                <tr><td>stock</td><td>Number</td><td>Yes</td><td>Quantity available.</td></tr>
+                <tr><td>category</td><td>String</td><td>Yes</td><td>Product category (e.g., accessories).</td></tr>
+                <tr><td>images</td><td>Array</td><td>Yes</td><td>List of image URLs.</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="section">
+        <h2>3. Order Entity (/orders)</h2>
+        <p>Log of all marketplace transactions.</p>
+        <table>
+            <thead>
+                <tr>
+                    <th>Field</th>
+                    <th>Type</th>
+                    <th>Required</th>
+                    <th>Description</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td>id</td><td>String (PK)</td><td>Yes</td><td>The unique order record ID.</td></tr>
+                <tr><td>customerId</td><td>String (FK)</td><td>Yes</td><td>Buyer's UID.</td></tr>
+                <tr><td>sellerId</td><td>String (FK)</td><td>Yes</td><td>Seller's UID.</td></tr>
+                <tr><td>total</td><td>Number</td><td>Yes</td><td>Total transaction amount.</td></tr>
+                <tr><td>status</td><td>Enum</td><td>Yes</td><td>PREPARING | SHIPPED | DELIVERED | CANCELLED</td></tr>
+                <tr><td>paymentMethod</td><td>String</td><td>Yes</td><td>GCASH or COD</td></tr>
+                <tr><td>date</td><td>Timestamp</td><td>Yes</td><td>Time of sale.</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="section">
+        <h2>4. System Configuration (/settings)</h2>
+        <p>Global app variables managed by Administrators.</p>
+        <table>
+            <thead>
+                <tr>
+                    <th>Field</th>
+                    <th>Type</th>
+                    <th>Default</th>
+                    <th>Description</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td>listingTaxRate</td><td>Number</td><td>0.05</td><td>Platform fee percentage.</td></tr>
+                <tr><td>sellerRegistrationEnabled</td><td>Boolean</td><td>true</td><td>Toggle new seller applications.</td></tr>
+                <tr><td>maintenanceMode</td><td>Boolean</td><td>false</td><td>Global store lock toggle.</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="footer">
+        <p>&copy; 2026 Tindahang Envergista - Manuel S. Enverga University Foundation</p>
+    </div>
+</body>
+</html>

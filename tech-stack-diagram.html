@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tech Stack Diagram - Tindahang Envergista</title>
+    <style>
+        :root {
+            --sidebar-bg: #1e222d;
+            --server-primary: #e91e63;
+            --server-secondary: #fce4ec;
+            --client-primary: #009688;
+            --client-secondary: #e0f2f1;
+            --box-border: 2px;
+        }
+
+        body {
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 40px;
+            background-color: #fff;
+            display: flex;
+            justify-content: center;
+        }
+
+        .container {
+            display: grid;
+            grid-template-columns: 180px 220px 680px;
+            gap: 15px;
+            max-width: 1100px;
+        }
+
+        /* Sidebar Headers */
+        .category-row {
+            display: contents;
+        }
+
+        .sidebar-header {
+            background-color: var(--sidebar-bg);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            font-weight: bold;
+            border-radius: 4px;
+            padding: 15px;
+            height: 70px;
+            font-size: 1.1rem;
+        }
+
+        /* Box Styles */
+        .box {
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 10px;
+            font-weight: 600;
+            font-size: 0.95rem;
+            min-height: 70px;
+        }
+
+        .server-box {
+            border: var(--box-border) solid var(--server-primary);
+            color: #333;
+            background-color: white;
+        }
+
+        .client-box {
+            border: var(--box-border) solid var(--client-primary);
+            color: #333;
+            background-color: white;
+        }
+
+        /* Bottom Labels */
+        .bottom-label {
+            color: white;
+            font-weight: bold;
+            padding: 15px;
+            text-align: center;
+            border-radius: 4px;
+            margin-top: 10px;
+            font-size: 1.2rem;
+        }
+
+        .server-label {
+            background-color: var(--server-primary);
+        }
+
+        .client-label {
+            background-color: var(--client-primary);
+        }
+
+        /* Layout Helpers */
+        .span-client {
+            grid-column: 3 / 4;
+        }
+
+        .client-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+        }
+
+        .title-wrapper {
+            grid-column: 1 / 4;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        h1 {
+            color: #800000;
+            margin: 0;
+            font-size: 2.5rem;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        .subtitle {
+            color: #666;
+            font-size: 1.1rem;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="title-wrapper">
+            <h1>Tindahang Envergista</h1>
+            <div class="subtitle">Full-Stack Marketplace Tech Stack Diagram</div>
+        </div>
+
+        <!-- Row: Libraries -->
+        <div class="category-row">
+            <div class="sidebar-header">Libraries</div>
+            <div class="box server-box">Nodemailer, <br>PDFKit, docx</div>
+            <div class="client-grid">
+                <div class="box client-box">Lucide React, <br>Motion</div>
+                <div class="box client-box">Sonner, <br>Firebase Client</div>
+                <div class="box client-box">Recharts, <br>D3.js</div>
+            </div>
+        </div>
+
+        <!-- Row: Framework -->
+        <div class="category-row">
+            <div class="sidebar-header">Framework</div>
+            <div class="box server-box">Express.js</div>
+            <div class="client-grid">
+                <div class="box client-box">React 19</div>
+                <div class="box client-box">Tailwind CSS 4</div>
+                <div class="box client-box">Vite 6</div>
+            </div>
+        </div>
+
+        <!-- Row: Database -->
+        <div class="category-row">
+            <div class="sidebar-header">Database</div>
+            <div class="box server-box">Firebase <br>Admin SDK</div>
+            <div class="client-grid">
+                <div class="box client-box" style="grid-column: span 3;">Cloud Firestore (Real-time NoSQL) <br> Firebase Authentication</div>
+            </div>
+        </div>
+
+        <!-- Row: Programming language -->
+        <div class="category-row">
+            <div class="sidebar-header">Programming<br>language</div>
+            <div class="box server-box">TypeScript, <br>Node.js</div>
+            <div class="client-grid">
+                <div class="box client-box" style="grid-column: span 3;">TypeScript, JavaScript (ES6+)</div>
+            </div>
+        </div>
+
+        <!-- Row: Platform / OS -->
+        <div class="category-row">
+            <div class="sidebar-header">Platform / OS</div>
+            <div class="box server-box">Linux (Cloud Run), <br>Docker</div>
+            <div class="client-grid">
+                <div class="box client-box" style="grid-column: span 3;">Web (Chrome, Safari, Firefox, Edge)</div>
+            </div>
+        </div>
+
+        <!-- Bottom Labels -->
+        <div style="grid-column: 1 / 2;"></div>
+        <div class="bottom-label server-label">Server-side</div>
+        <div class="bottom-label client-label">Client-side</div>
+    </div>
+</body>
+</html>

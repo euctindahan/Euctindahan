@@ -12,6 +12,19 @@
         "photoURL": { "type": "string" },
         "bannerUrl": { "type": "string" },
         "bio": { "type": "string" },
+        "studentId": { "type": "string" },
+        "gcashNumber": { "type": "string" },
+        "gcashName": { "type": "string" },
+        "isVerified": { "type": "boolean" },
+        "verificationStatus": { "type": "string", "enum": ["none", "pending", "verified", "rejected"] },
+        "verificationData": {
+          "type": "object",
+          "properties": {
+            "idPhoto": { "type": "string" },
+            "additionalInfo": { "type": "string" },
+            "submittedAt": { "type": "string", "format": "date-time" }
+          }
+        },
         "isBlocked": { "type": "boolean" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
@@ -48,6 +61,7 @@
         "total": { "type": "number" },
         "taxAmount": { "type": "number", "description": "Commission/tax fee for this order" },
         "taxPaidToAdmin": { "type": "boolean", "description": "Whether the tax has been remitted to the admin" },
+        "isCustomerVerified": { "type": "boolean" },
         "date": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "customerId", "sellerId", "items", "status", "total"]

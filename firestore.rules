@@ -45,13 +45,18 @@ service cloud.firestore {
     // Domain Validators
     // ===============================================================
     function isValidUser(data) {
-      return hasOnlyAllowedFields(['uid', 'email', 'displayName', 'role', 'photoURL', 'bio', 'studentId', 'isBlocked', 'createdAt', 'updatedAt']) &&
+      return hasOnlyAllowedFields(['uid', 'email', 'displayName', 'role', 'photoURL', 'bio', 'studentId', 'gcashNumber', 'gcashName', 'isVerified', 'verificationStatus', 'verificationData', 'isBlocked', 'createdAt', 'updatedAt']) &&
         data.uid is string && data.uid.size() > 0 &&
         data.email is string && isValidEmail(data.email) &&
         data.role in ['customer', 'seller', 'admin'] &&
         (!('displayName' in data) || data.displayName == null || (data.displayName is string && data.displayName.size() < 100)) &&
         (!('bio' in data) || data.bio == null || (data.bio is string && data.bio.size() < 500)) &&
         (!('studentId' in data) || data.studentId == null || (data.studentId is string && data.studentId.size() < 50)) &&
+        (!('gcashNumber' in data) || data.gcashNumber == null || (data.gcashNumber is string && data.gcashNumber.size() < 20)) &&
+        (!('gcashName' in data) || data.gcashName == null || (data.gcashName is string && data.gcashName.size() < 100)) &&
+        (!('isVerified' in data) || data.isVerified is bool) &&
+        (!('verificationStatus' in data) || data.verificationStatus in ['none', 'pending', 'verified', 'rejected']) &&
+        (!('verificationData' in data) || (data.verificationData is map)) &&
         (!('isBlocked' in data) || data.isBlocked is bool);
     }
 
@@ -67,7 +72,7 @@ service cloud.firestore {
     }
 
     function isValidOrder(data) {
-      return hasOnlyAllowedFields(['id', 'customerId', 'customerName', 'customerStudentId', 'sellerId', 'items', 'status', 'total', 'taxAmount', 'taxPaidToAdmin', 'date', 'updatedAt', 'paymentMethod']) &&
+      return hasOnlyAllowedFields(['id', 'customerId', 'customerName', 'customerStudentId', 'sellerId', 'items', 'status', 'total', 'taxAmount', 'taxPaidToAdmin', 'isCustomerVerified', 'date', 'updatedAt', 'paymentMethod']) &&
         data.id is string &&
         data.customerId is string &&
         data.customerName is string &&
@@ -77,6 +82,7 @@ service cloud.firestore {
         data.total is number && data.total >= 0 &&
         (!('taxAmount' in data) || data.taxAmount is number) &&
         (!('taxPaidToAdmin' in data) || data.taxPaidToAdmin is bool) &&
+        (!('isCustomerVerified' in data) || data.isCustomerVerified is bool) &&
         data.items is list && data.items.size() < 50 &&
         data.date is string &&
         (!('updatedAt' in data) || data.updatedAt is string) &&
@@ -152,6 +158,10 @@ service cloud.firestore {
                       (isAdmin() || 
                        (request.resource.data.uid == resource.data.uid &&
                         request.resource.data.email == resource.data.email &&
+                        (!('isVerified' in request.resource.data) || request.resource.data.isVerified == resource.data.isVerified) &&
+                        (!('verificationStatus' in request.resource.data) || 
+                          request.resource.data.verificationStatus == resource.data.verificationStatus || 
+                          (resource.data.verificationStatus != 'verified' && request.resource.data.verificationStatus == 'pending')) &&
                         (request.resource.data.role == resource.data.role || 
                          (resource.data.role == 'customer' && request.resource.data.role == 'seller') ||
                          (resource.data.role == 'seller' && request.resource.data.role == 'customer'))));
@@ -165,12 +175,16 @@ service cloud.firestore {
     match /products/{productId} {
       allow read: if true;
       allow create: if isAuthenticated() && isValidProduct(request.resource.data) && 
-                      (request.resource.data.sellerId == request.auth.uid || isAdmin());
+                      (isAdmin() || 
+                       (request.resource.data.sellerId == request.auth.uid && 
+                        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isVerified == true));
       allow update: if isAuthenticated() && 
                       (
                         isAdmin() ||
-                        // Full update by seller
-                        (resource.data.sellerId == request.auth.uid && isValidProduct(request.resource.data) &&
+                        // Full update by verified seller
+                        (resource.data.sellerId == request.auth.uid && 
+                         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isVerified == true &&
+                         isValidProduct(request.resource.data) &&
                          request.resource.data.sellerId == resource.data.sellerId &&
                          request.resource.data.id == resource.data.id) ||
                         // Stock update by anyone (e.g. customer during checkout)
