@@ -853,7 +853,8 @@ export default function App() {
         where('customerId', '==', currentUser.uid),
         where('sellerId', '==', currentUser.uid)
       ),
-      orderBy('date', 'desc')
+      orderBy('date', 'desc'),
+      limit(50)
     );
     const unsubOrders = onSnapshot(qOrders, (snapshot) => {
       const ords = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
@@ -867,7 +868,8 @@ export default function App() {
         where('customerId', '==', currentUser.uid),
         where('sellerId', '==', currentUser.uid)
       ),
-      orderBy('updatedAt', 'desc')
+      orderBy('updatedAt', 'desc'),
+      limit(50)
     );
     const unsubChats = onSnapshot(qChats, (snapshot) => {
       const cts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Chat));
@@ -878,7 +880,8 @@ export default function App() {
     const qNotifs = query(
       collection(db, 'notifications'),
       where('userId', '==', currentUser.uid),
-      orderBy('date', 'desc')
+      orderBy('date', 'desc'),
+      limit(30)
     );
     const unsubNotifs = onSnapshot(qNotifs, (snapshot) => {
       const nots = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Notification));
@@ -941,23 +944,64 @@ export default function App() {
     };
   }, [isAuthReady, currentUser]);
 
-  // 3. Admin Specific Data Listeners (Users, All Orders)
+  // 3. Admin/Shared Data Listeners (Users, All Orders)
   useEffect(() => {
-    if (!isAuthReady || !currentUser || userProfile?.role !== 'admin') return;
+    if (!isAuthReady || !currentUser) return;
 
-    const unsubAllUsers = onSnapshot(query(collection(db, 'users'), limit(500)), (snapshot) => {
+    const isAdminUser = userProfile?.role === 'admin' || ADMIN_EMAILS.includes(currentUser.email || '');
+    // For admins, get all users. For others, only get sellers and admins which they are allowed to read
+    const qUsers = isAdminUser
+      ? query(collection(db, 'users'), limit(500))
+      : query(collection(db, 'users'), where('role', 'in', ['seller', 'admin']), limit(100));
+
+    const unsubAllUsers = onSnapshot(qUsers, (snapshot) => {
       setAllUsers(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id })));
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'users'));
+    }, (error) => {
+      // Don't toast for list errors to users, just log
+      console.warn("User list access restricted or error:", error);
+    });
 
-    const unsubAllOrders = onSnapshot(query(collection(db, 'orders'), orderBy('date', 'desc'), limit(500)), (snapshot) => {
-      setAllOrders(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id })) as Order[]);
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'orders'));
+    // All orders only for admins
+    let unsubAllOrders = () => {};
+    if (isAdminUser) {
+      const qAllOrders = query(collection(db, 'orders'), orderBy('date', 'desc'), limit(100));
+      unsubAllOrders = onSnapshot(qAllOrders, (snapshot) => {
+        setAllOrders(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id })) as Order[]);
+      }, (error) => handleFirestoreError(error, OperationType.LIST, 'orders'));
+    }
 
     return () => {
       unsubAllUsers();
       unsubAllOrders();
     };
   }, [isAuthReady, currentUser, userProfile]);
+
+  // 4. Data Migration & Sync
+  useEffect(() => {
+    if (!currentUser || userRole !== 'seller' || !userProfile?.gcashNumber) return;
+
+    const syncSellerGcash = async () => {
+      try {
+        const sellerProds = allProducts.filter(p => p.sellerId === currentUser.uid);
+        const batch = sellerProds.filter(p => p.sellerGcashNumber !== userProfile.gcashNumber || p.sellerGcashName !== userProfile.gcashName);
+        
+        if (batch.length > 0) {
+          console.log(`Syncing GCash info for ${batch.length} products...`);
+          await Promise.all(batch.map(p => 
+            updateDoc(doc(db, 'products', p.id), {
+              sellerGcashNumber: userProfile.gcashNumber,
+              sellerGcashName: userProfile.gcashName,
+              updatedAt: new Date().toISOString()
+            })
+          ));
+        }
+      } catch (error) {
+        console.warn("Failed to sync GCash info to products:", error);
+      }
+    };
+
+    syncSellerGcash();
+  }, [currentUser, userRole, userProfile?.gcashNumber, userProfile?.gcashName, allProducts.length]);
 
   const toggleUserBlock = (userId: string, currentStatus: boolean) => {
     if (!currentStatus) {
@@ -1798,6 +1842,8 @@ export default function App() {
                     stock: Number(stock),
                     category,
                     images,
+                    sellerGcashNumber: userProfile?.gcashNumber || '',
+                    sellerGcashName: userProfile?.gcashName || '',
                     updatedAt: new Date().toISOString(),
                     ...(isNew ? { createdAt: new Date().toISOString() } : {})
                   };
@@ -3192,16 +3238,18 @@ export default function App() {
     const sellersInCart = useMemo(() => {
       const sellerIds = Array.from(new Set(cart.map(item => item.sellerId || 'system')));
       return sellerIds.map(id => {
-        const user = allUsers.find(u => u.uid === id);
+        const user = allUsers.find(u => u.uid === id || u.id === id);
+        const firstItemWithGcash = cart.find(item => (item.sellerId || 'system') === id && item.sellerGcashNumber);
+        const firstItem = cart.find(item => (item.sellerId || 'system') === id);
         return {
           uid: id,
-          displayName: user?.displayName || 'Student Seller',
-          gcashNumber: user?.gcashNumber || 'Not Set',
-          gcashName: user?.gcashName || 'Not Set',
+          displayName: user?.displayName || firstItem?.sellerName || 'Student Seller',
+          gcashNumber: user?.gcashNumber || firstItemWithGcash?.sellerGcashNumber || firstItem?.sellerGcashNumber || 'Not Set',
+          gcashName: user?.gcashName || firstItemWithGcash?.sellerGcashName || firstItem?.sellerGcashName || 'Not Set',
           items: cart.filter(item => (item.sellerId || 'system') === id)
         };
       });
-    }, [cart, allUsers]);
+    }, [cart, allUsers, userProfile]);
 
     const total = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
 
@@ -3279,13 +3327,23 @@ export default function App() {
                           <div className="pt-4 border-t border-blue-100 dark:border-blue-800/50 grid grid-cols-2 gap-4">
                             <div>
                               <p className="text-[8px] font-black text-gray-400 uppercase tracking-widest">GCash Number</p>
-                              <p className="text-xs font-black dark:text-white">{seller.gcashNumber}</p>
+                              <p className={`text-xs font-black ${seller.gcashNumber === 'Not Set' ? 'text-orange-500' : 'dark:text-white'}`}>
+                                {seller.gcashNumber}
+                              </p>
                             </div>
                             <div>
                               <p className="text-[8px] font-black text-gray-400 uppercase tracking-widest">Account Name</p>
-                              <p className="text-xs font-black dark:text-white">{seller.gcashName}</p>
+                              <p className={`text-xs font-black ${seller.gcashName === 'Not Set' ? 'text-orange-500' : 'dark:text-white'}`}>
+                                {seller.gcashName}
+                              </p>
                             </div>
                           </div>
+                          {(seller.gcashNumber === 'Not Set' || seller.gcashName === 'Not Set') && (
+                            <div className="mt-2 flex items-center gap-2 text-[8px] font-bold text-orange-500 uppercase bg-orange-500/10 px-3 py-2 rounded-xl">
+                              <Info size={12} />
+                              Seller hasn't set GCash info. Chat with them to confirm!
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -3715,21 +3773,27 @@ export default function App() {
                             View Receipt
                           </button>
                         )}
-                        {order.paymentStatus === 'PENDING' && (
-                          <>
-                            <button 
+                        {(!order.paymentStatus || order.paymentStatus === 'PENDING') && (
+                          <div className="flex gap-3 flex-1 md:flex-none">
+                            <motion.button 
+                              whileHover={{ scale: 1.02 }}
+                              whileTap={{ scale: 0.98 }}
                               onClick={() => verifyPayment(order.id, 'VERIFIED')}
-                              className="flex-1 md:flex-none bg-green-600 text-white px-6 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-black transition-all"
+                              className="flex-1 md:flex-none bg-green-600 text-white px-8 py-4 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-green-600/20 hover:bg-black transition-all flex items-center justify-center gap-2"
                             >
+                              <CheckCircle2 size={16} />
                               Approve
-                            </button>
-                            <button 
+                            </motion.button>
+                            <motion.button 
+                              whileHover={{ scale: 1.02 }}
+                              whileTap={{ scale: 0.98 }}
                               onClick={() => verifyPayment(order.id, 'FAILED')}
-                              className="flex-1 md:flex-none bg-red-600/10 text-red-600 px-6 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-red-600 hover:text-white transition-all"
+                              className="flex-1 md:flex-none bg-red-600/10 text-red-600 px-8 py-4 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-red-600 hover:text-white transition-all flex items-center justify-center gap-2"
                             >
+                              <X size={16} />
                               Reject
-                            </button>
-                          </>
+                            </motion.button>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -4000,6 +4064,34 @@ export default function App() {
                   )}
 
                   <div className="flex flex-wrap gap-4 mt-6">
+                    {order.status === 'DELIVERED' && (
+                      <motion.button
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={() => {
+                          const firstProduct = allProducts.find(p => p.id === order.items[0].id);
+                          if (firstProduct) {
+                            setReviewingProduct(firstProduct);
+                          } else {
+                            // Fallback if product not in allProducts
+                            setReviewingProduct({
+                              id: order.items[0].id,
+                              name: order.items[0].name,
+                              price: order.items[0].price,
+                              images: order.items[0].images,
+                              category: order.items[0].category,
+                              sellerId: order.items[0].sellerId,
+                              sellerName: order.items[0].sellerName,
+                              stock: order.items[0].stock
+                            });
+                          }
+                        }}
+                        className="bg-maroon text-white px-6 py-3 rounded-xl font-black uppercase text-[9px] tracking-widest hover:bg-black transition-all shadow-lg flex items-center gap-2"
+                      >
+                        <Star size={14} className="fill-current" />
+                        Review Product
+                      </motion.button>
+                    )}
                     {order.status === 'PREPARING' && (
                       <motion.button
                         whileHover={{ scale: 1.02 }}
@@ -5082,7 +5174,41 @@ export default function App() {
   };
 
   const OrderDetailsView = () => {
+    const [localSelectedReceipt, setLocalSelectedReceipt] = useState<string | null>(null);
+
     if (!selectedOrder) return null;
+
+    const canVerify = (userProfile?.role === 'admin' && ADMIN_EMAILS.includes(currentUser?.email)) || 
+                     (userProfile?.role === 'seller' && selectedOrder.sellerId === currentUser?.uid);
+
+    const verifyPayment = async (orderId: string, status: 'VERIFIED' | 'FAILED') => {
+      setConfirmAction({
+        title: status === 'VERIFIED' ? 'Approve Payment' : 'Reject Payment',
+        message: status === 'VERIFIED' 
+          ? 'Are you sure you want to approve this GCash payment? Please ensure you have verified the receipt.'
+          : 'Are you sure you want to reject this payment? This will also mark the order as rejected.',
+        onConfirm: async () => {
+          try {
+            const updateData: any = {
+              paymentStatus: status,
+              updatedAt: new Date().toISOString()
+            };
+            
+            if (status === 'FAILED') {
+              updateData.status = 'REJECTED';
+            }
+            
+            await updateDoc(doc(db, 'orders', orderId), updateData);
+            setSelectedOrder(prev => prev ? { ...prev, ...updateData } : null);
+            toast.success(`Payment marked as ${status.toLowerCase()}${status === 'FAILED' ? ' and order rejected' : ''}`);
+          } catch (error) {
+            handleFirestoreError(error, OperationType.UPDATE, `orders/${orderId}`);
+          }
+        },
+        confirmText: status === 'VERIFIED' ? 'Yes, Approve' : 'Yes, Reject',
+        type: status === 'VERIFIED' ? 'primary' : 'danger'
+      });
+    };
 
     return (
       <div className="pb-24 bg-gray-50 dark:bg-black min-h-screen">
@@ -5152,19 +5278,48 @@ export default function App() {
                     <p className="text-sm font-bold text-gray-900 dark:text-white">{selectedOrder.paymentMethod}</p>
                   </div>
                   {selectedOrder.paymentMethod === 'GCASH' && (
-                    <div className="flex items-center gap-2 mt-2">
-                      <div className={`w-2 h-2 rounded-full ${
-                        selectedOrder.paymentStatus === 'VERIFIED' ? 'bg-green-500' : 
-                        selectedOrder.paymentStatus === 'FAILED' ? 'bg-red-500' : 
-                        'bg-orange-500 animate-pulse'
-                      }`}></div>
-                      <p className={`text-[10px] font-black uppercase tracking-widest ${
-                        selectedOrder.paymentStatus === 'VERIFIED' ? 'text-green-600' : 
-                        selectedOrder.paymentStatus === 'FAILED' ? 'text-red-600' : 
-                        'text-orange-600'
-                      }`}>
-                        {selectedOrder.paymentStatus || 'PENDING VERIFICATION'}
-                      </p>
+                    <div className="space-y-4 mt-4">
+                      <div className="flex items-center gap-2">
+                        <div className={`w-2 h-2 rounded-full ${
+                          selectedOrder.paymentStatus === 'VERIFIED' ? 'bg-green-500' : 
+                          selectedOrder.paymentStatus === 'FAILED' ? 'bg-red-500' : 
+                          'bg-orange-500 animate-pulse'
+                        }`}></div>
+                        <p className={`text-[10px] font-black uppercase tracking-widest ${
+                          selectedOrder.paymentStatus === 'VERIFIED' ? 'text-green-600' : 
+                          selectedOrder.paymentStatus === 'FAILED' ? 'text-red-600' : 
+                          'text-orange-600'
+                        }`}>
+                          {selectedOrder.paymentStatus || 'PENDING VERIFICATION'}
+                        </p>
+                      </div>
+
+                      {selectedOrder.paymentScreenshot && (
+                        <button 
+                          onClick={() => setLocalSelectedReceipt(selectedOrder.paymentScreenshot || null)}
+                          className="w-full bg-gray-50 dark:bg-gray-800 p-4 rounded-2xl border border-gray-100 dark:border-gray-700 flex items-center justify-center gap-3 group hover:border-maroon transition-all"
+                        >
+                          <Camera size={16} className="text-gray-400 group-hover:text-maroon" />
+                          <span className="text-[10px] font-black uppercase tracking-widest text-gray-500 group-hover:text-maroon">View Payment Receipt</span>
+                        </button>
+                      )}
+
+                      {canVerify && (!selectedOrder.paymentStatus || selectedOrder.paymentStatus === 'PENDING') && (
+                        <div className="flex gap-3">
+                          <button 
+                            onClick={() => verifyPayment(selectedOrder.id, 'VERIFIED')}
+                            className="flex-1 bg-green-600 text-white py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-green-600/20 hover:scale-[1.02] transition-all"
+                          >
+                            Approve Payment
+                          </button>
+                          <button 
+                            onClick={() => verifyPayment(selectedOrder.id, 'FAILED')}
+                            className="flex-1 bg-red-600/10 text-red-600 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-red-600 hover:text-white transition-all shadow-sm"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
                   {selectedOrder.paymentMethod === 'COD' && (
@@ -5185,6 +5340,32 @@ export default function App() {
                     <div className="flex-1">
                       <h5 className="text-sm font-black uppercase tracking-tight text-gray-900 dark:text-white">{item.name}</h5>
                       <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">Qty: {item.quantity} × ₱{item.price.toLocaleString()}</p>
+                      {selectedOrder.status === 'DELIVERED' && (
+                        <button 
+                          onClick={() => {
+                            const prod = allProducts.find(p => p.id === item.id);
+                            if (prod) {
+                              setReviewingProduct(prod);
+                            } else {
+                              // Typecast or construct a partial product for the modal
+                              setReviewingProduct({
+                                id: item.id,
+                                name: item.name,
+                                price: item.price,
+                                images: item.images,
+                                category: item.category,
+                                sellerId: item.sellerId,
+                                sellerName: item.sellerName,
+                                stock: item.stock
+                              } as any);
+                            }
+                          }}
+                          className="mt-2 text-maroon text-[9px] font-black uppercase tracking-widest flex items-center gap-1 hover:underline"
+                        >
+                          <Star size={10} className="fill-current" />
+                          Rate & Review
+                        </button>
+                      )}
                     </div>
                     <p className="font-black text-gray-900 dark:text-white">₱{(item.price * item.quantity).toLocaleString()}</p>
                   </div>
@@ -5197,6 +5378,28 @@ export default function App() {
               <span className="text-3xl font-black text-maroon">₱{selectedOrder.total.toLocaleString()}</span>
             </div>
           </div>
+
+          <AnimatePresence>
+            {localSelectedReceipt && (
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md"
+              >
+                <div className="relative w-full max-w-2xl max-h-[90vh] flex flex-col items-center">
+                  <button 
+                    onClick={() => setLocalSelectedReceipt(null)}
+                    className="absolute -top-12 right-0 text-white hover:text-maroon transition-colors"
+                  >
+                    <X size={32} />
+                  </button>
+                  <img src={localSelectedReceipt} className="w-full h-full object-contain rounded-3xl shadow-2xl" alt="Payment Receipt" />
+                  <p className="mt-6 text-white/60 font-black uppercase tracking-[0.5em] text-xs">Customer Payment Receipt</p>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
         <BottomNav {...bottomNavProps} />
       </div>
@@ -5204,7 +5407,7 @@ export default function App() {
   };
 
     const AdminDashboardView = () => {
-      const [activeTab, setActiveTab] = useState<'users' | 'orders' | 'reports' | 'tax' | 'payments' | 'verification' | 'settings'>('users');
+      const [activeTab, setActiveTab] = useState<'users' | 'orders' | 'reports' | 'tax' | 'verification' | 'settings'>('users');
       const [roleFilter, setRoleFilter] = useState<'all' | 'customer' | 'seller' | 'admin'>('all');
     const [orderStatusFilter, setOrderStatusFilter] = useState<Order['status'] | 'ALL'>('ALL');
     const [taxRateInput, setTaxRateInput] = useState((appSettings?.listingTaxRate || 0) * 100);
@@ -5433,7 +5636,6 @@ export default function App() {
                 { id: 'users', label: 'Users', icon: <User size={16} /> },
                 { id: 'orders', label: 'Orders', icon: <ClipboardList size={16} /> },
                 { id: 'verification', label: 'Verification', icon: <ShieldCheck size={16} /> },
-                { id: 'payments', label: 'Payments', icon: <CreditCard size={16} /> },
                 { id: 'reports', label: 'Reports', icon: <BarChart3 size={16} /> },
                 { id: 'tax', label: 'Listing Tax', icon: <DollarSign size={16} /> },
                 { id: 'settings', label: 'Settings', icon: <Settings size={16} /> }
@@ -5837,102 +6039,6 @@ export default function App() {
                   </motion.div>
                 )}
 
-                {activeTab === 'payments' && (
-                  <motion.div 
-                    key="payments"
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -20 }}
-                    className="space-y-10"
-                  >
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                      <div className="space-y-1">
-                        <h3 className="text-2xl font-black uppercase tracking-tighter dark:text-white">GCash Verification</h3>
-                        <p className="text-xs text-gray-400 font-medium">Verify digital payments and receipts from students</p>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 gap-4">
-                      {allOrders.filter(o => o.paymentMethod === 'GCASH' && o.paymentStatus === 'PENDING').length === 0 ? (
-                        <div className="text-center py-32 bg-gray-50 dark:bg-white/5 rounded-[3rem] border-2 border-dashed border-gray-100 dark:border-white/5">
-                          <CreditCard size={48} className="mx-auto text-gray-300 mb-4" />
-                          <p className="text-xs font-black uppercase tracking-widest text-gray-400">No pending GCash payments</p>
-                        </div>
-                      ) : (
-                        allOrders.filter(o => o.paymentMethod === 'GCASH' && o.paymentStatus === 'PENDING').map((order: Order) => (
-                          <div key={order.id} className="group p-8 bg-white dark:bg-[#0d0d0d] rounded-[2.5rem] border border-gray-100 dark:border-white/5 hover:border-maroon/20 transition-all duration-500">
-                            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-8">
-                              <div className="flex items-center gap-6">
-                                <div className="w-16 h-16 rounded-2xl bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center text-blue-600">
-                                  <CreditCard size={32} />
-                                </div>
-                                <div>
-                                  <div className="flex items-center gap-3 mb-1">
-                                    <h4 className="font-black text-xl tracking-tight dark:text-white uppercase leading-none">₱{order.total.toLocaleString()}</h4>
-                                    <span className="text-[8px] font-black uppercase tracking-widest px-3 py-1 rounded-lg bg-orange-500/10 text-orange-500">
-                                      Pending Verification
-                                    </span>
-                                  </div>
-                                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-                                    Customer: {order.customerName} • Seller: {allUsers.find(u => u.uid === order.sellerId)?.displayName || 'Student Seller'}
-                                  </p>
-                                  <p className="text-[8px] text-gray-400 font-medium uppercase tracking-widest mt-1">{new Date(order.date).toLocaleDateString()} at {new Date(order.date).toLocaleTimeString()}</p>
-                                </div>
-                              </div>
-                              
-                              <div className="flex items-center gap-4 w-full md:w-auto">
-                                {order.paymentScreenshot && (
-                                  <button 
-                                    onClick={() => setSelectedReceipt(order.paymentScreenshot || null)}
-                                    className="flex-1 md:flex-none bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white px-6 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-maroon hover:text-white transition-all flex items-center justify-center gap-2"
-                                  >
-                                    <Camera size={16} />
-                                    View Receipt
-                                  </button>
-                                )}
-                                <button 
-                                  onClick={() => verifyPayment(order.id, 'VERIFIED')}
-                                  className="flex-1 md:flex-none bg-green-600 text-white px-6 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-green-600/20 hover:bg-black transition-all"
-                                >
-                                  Approve
-                                </button>
-                                <button 
-                                  onClick={() => verifyPayment(order.id, 'FAILED')}
-                                  className="flex-1 md:flex-none bg-red-600/10 text-red-600 px-6 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-red-600 hover:text-white transition-all"
-                                >
-                                  Reject
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        ))
-                      )}
-                    </div>
-
-                    {/* Receipt Modal */}
-                    <AnimatePresence>
-                      {selectedReceipt && (
-                        <motion.div 
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          exit={{ opacity: 0 }}
-                          className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md"
-                        >
-                          <div className="relative w-full max-w-2xl max-h-[90vh] flex flex-col items-center">
-                            <button 
-                              onClick={() => setSelectedReceipt(null)}
-                              className="absolute -top-12 right-0 text-white hover:text-maroon transition-colors"
-                            >
-                              <X size={32} />
-                            </button>
-                            <img src={selectedReceipt} className="w-full h-full object-contain rounded-3xl" alt="Payment Receipt" />
-                            <p className="mt-6 text-white/60 font-black uppercase tracking-[0.5em] text-xs">Payment Verification Receipt</p>
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </motion.div>
-                )}
 
                 {activeTab === 'reports' && (
                 <motion.div 

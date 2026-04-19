@@ -48,6 +48,8 @@ export interface Product {
   category: string;
   sellerId: string;
   sellerName: string;
+  sellerGcashNumber?: string;
+  sellerGcashName?: string;
   stock: number;
   createdAt?: any;
 }

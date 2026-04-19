@@ -30,11 +30,7 @@ service cloud.firestore {
     }
     function isAdmin() {
       return isAuthenticated() &&
-        (request.auth.token.email == "systemppdea@gmail.com" ||
-         (request.auth.token.email == "abadjustine679@gmail.com" && request.auth.token.email_verified == true) ||
-         (request.auth.token.email == "euctindahan371@gmail.com" && request.auth.token.email_verified == true) ||
-         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'));
+        (request.auth.token.email in ["systemppdea@gmail.com", "abadjustine679@gmail.com", "euctindahan371@gmail.com"] && request.auth.token.email_verified == true);
     }
 
     function isPart(data) {
@@ -61,13 +57,15 @@ service cloud.firestore {
     }
 
     function isValidProduct(data) {
-      return hasOnlyAllowedFields(['id', 'name', 'price', 'images', 'category', 'sellerId', 'sellerName', 'stock', 'createdAt', 'updatedAt']) &&
+      return hasOnlyAllowedFields(['id', 'name', 'price', 'images', 'category', 'sellerId', 'sellerName', 'sellerGcashNumber', 'sellerGcashName', 'stock', 'createdAt', 'updatedAt']) &&
         data.id is string && data.id.size() > 0 &&
         data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
         data.price is number && data.price >= 0 &&
         data.stock is number && data.stock >= 0 &&
         data.category is string && data.category.size() < 50 &&
         data.sellerId is string &&
+        (!('sellerGcashNumber' in data) || data.sellerGcashNumber is string) &&
+        (!('sellerGcashName' in data) || data.sellerGcashName is string) &&
         data.images is list && data.images.size() <= 10;
     }
 
@@ -151,7 +149,7 @@ service cloud.firestore {
     // ===============================================================
 
     match /users/{userId} {
-      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin() || resource.data.role == 'admin');
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin() || resource.data.role == 'admin' || resource.data.role == 'seller');
       allow create: if isAuthenticated() && request.auth.uid == userId && isValidUser(request.resource.data) && 
                       (request.resource.data.role == 'customer' || 
                        (request.auth.token.email == "abadjustine679@gmail.com" && request.resource.data.role == 'admin') ||
