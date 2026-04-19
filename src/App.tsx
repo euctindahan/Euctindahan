@@ -787,14 +787,22 @@ export default function App() {
           } else {
             // New user via Google, check for admin email
             const role = ADMIN_EMAILS.includes(user.email || '') ? 'admin' : 'customer';
-            const newProfile = {
+            const newProfile: any = {
               uid: user.uid,
               email: user.email,
               displayName: user.displayName,
               role: role,
               photoURL: user.photoURL,
+              bio: '',
+              studentId: '',
+              gcashNumber: '',
+              gcashName: '',
+              isVerified: false,
+              verificationStatus: 'none',
+              verificationData: null,
+              isBlocked: false,
               createdAt: Timestamp.now(),
-              studentId: '' // Initialize with empty student ID
+              updatedAt: new Date().toISOString()
             };
             await setDoc(doc(db, 'users', user.uid), newProfile);
             setUserRole(role);
@@ -1417,9 +1425,10 @@ export default function App() {
     try {
       setIsLoading(true);
       const userRef = doc(db, 'users', currentUser.uid);
-      await updateDoc(userRef, data);
+      const updates = { ...data, updatedAt: new Date().toISOString() };
+      await updateDoc(userRef, updates);
       if (data.role) setUserRole(data.role);
-      setUserProfile((prev: any) => ({ ...prev, ...data }));
+      setUserProfile((prev: any) => ({ ...prev, ...updates }));
       toast.success('Profile updated successfully!');
       navigateTo('profile');
     } catch (error) {
@@ -4518,8 +4527,8 @@ export default function App() {
     const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (file) {
-        if (file.size > 1024 * 1024) {
-          toast.error('Image too large. Please select an image under 1MB.');
+        if (file.size > 500 * 1024) {
+          toast.error('Image too large. Please select an image under 500KB.');
           return;
         }
         const reader = new FileReader();

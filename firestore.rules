@@ -56,7 +56,7 @@ service cloud.firestore {
         (!('gcashName' in data) || data.gcashName == null || (data.gcashName is string && data.gcashName.size() < 100)) &&
         (!('isVerified' in data) || data.isVerified is bool) &&
         (!('verificationStatus' in data) || data.verificationStatus in ['none', 'pending', 'verified', 'rejected']) &&
-        (!('verificationData' in data) || (data.verificationData is map)) &&
+        (!('verificationData' in data) || data.verificationData == null || (data.verificationData is map)) &&
         (!('isBlocked' in data) || data.isBlocked is bool);
     }
 
@@ -72,13 +72,13 @@ service cloud.firestore {
     }
 
     function isValidOrder(data) {
-      return hasOnlyAllowedFields(['id', 'customerId', 'customerName', 'customerStudentId', 'sellerId', 'items', 'status', 'total', 'taxAmount', 'taxPaidToAdmin', 'isCustomerVerified', 'date', 'updatedAt', 'paymentMethod']) &&
+      return hasOnlyAllowedFields(['id', 'customerId', 'customerName', 'customerStudentId', 'sellerId', 'items', 'status', 'total', 'taxAmount', 'taxPaidToAdmin', 'isCustomerVerified', 'date', 'updatedAt', 'paymentMethod', 'paymentStatus', 'paymentScreenshot']) &&
         data.id is string &&
         data.customerId is string &&
         data.customerName is string &&
         (!('customerStudentId' in data) || data.customerStudentId == null || data.customerStudentId is string) &&
         data.sellerId is string &&
-        data.status in ['PREPARING', 'SHIPPED', 'DELIVERED', 'REJECTED', 'CANCELLED'] &&
+        data.status in ['PENDING', 'PREPARING', 'SHIPPED', 'DELIVERED', 'REJECTED', 'CANCELLED'] &&
         data.total is number && data.total >= 0 &&
         (!('taxAmount' in data) || data.taxAmount is number) &&
         (!('taxPaidToAdmin' in data) || data.taxPaidToAdmin is bool) &&
@@ -86,7 +86,9 @@ service cloud.firestore {
         data.items is list && data.items.size() < 50 &&
         data.date is string &&
         (!('updatedAt' in data) || data.updatedAt is string) &&
-        data.paymentMethod in ['GCASH', 'COD'];
+        data.paymentMethod in ['GCASH', 'COD'] &&
+        (!('paymentStatus' in data) || data.paymentStatus == null || data.paymentStatus in ['PENDING', 'VERIFIED', 'FAILED']) &&
+        (!('paymentScreenshot' in data) || data.paymentScreenshot == null || data.paymentScreenshot is string);
     }
 
     function isValidReview(data) {
@@ -158,10 +160,10 @@ service cloud.firestore {
                       (isAdmin() || 
                        (request.resource.data.uid == resource.data.uid &&
                         request.resource.data.email == resource.data.email &&
-                        (!('isVerified' in request.resource.data) || request.resource.data.isVerified == resource.data.isVerified) &&
+                        request.resource.data.get('isVerified', false) == resource.data.get('isVerified', false) &&
                         (!('verificationStatus' in request.resource.data) || 
-                          request.resource.data.verificationStatus == resource.data.verificationStatus || 
-                          (resource.data.verificationStatus != 'verified' && request.resource.data.verificationStatus == 'pending')) &&
+                          request.resource.data.verificationStatus == resource.data.get('verificationStatus', 'none') || 
+                          (resource.data.get('verificationStatus', 'none') != 'verified' && request.resource.data.verificationStatus == 'pending')) &&
                         (request.resource.data.role == resource.data.role || 
                          (resource.data.role == 'customer' && request.resource.data.role == 'seller') ||
                          (resource.data.role == 'seller' && request.resource.data.role == 'customer'))));
